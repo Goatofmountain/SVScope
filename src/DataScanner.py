@@ -113,8 +113,8 @@ def FetchTDsubSeq(refFile, bamFileList, LabelList, TDRecord, offset=200):
                 SeqDf = pd.DataFrame(tmpReadSeqArr, columns=['readID', 'qseq', 'mapQ'])
                 SeqDf.index = SeqDf['readID']
                 SummaryDf = pd.concat([F5_df.loc[F5_df['readID'].isin(spanReadIDs)].groupby(['readID'])['start'].apply(min), 
-                                       F3_df.loc[F3_df['readID'].isin(spanReadIDs)].groupby(['readID'])['end'].apply(max), 
-                                       SeqDf.loc[spanReadIDs, ['qseq', 'mapQ']]], axis=1)
+                                        F3_df.loc[F3_df['readID'].isin(spanReadIDs)].groupby(['readID'])['end'].apply(max), 
+                                        SeqDf.loc[spanReadIDs, ['qseq', 'mapQ']]], axis=1)
                 SummaryDf['SubSeq'] = SummaryDf.apply(lambda x: x['qseq'][x['start']:x['end']].replace("N",""), axis=1)
                 readIDList += [LabelList[bamIDX] + "|" + x for x in SummaryDf.index]
                 readTDSeq += [x for x in SummaryDf['SubSeq']]
@@ -388,6 +388,71 @@ def makeupDB(bed_file,dbName, batchsize=500000):
     conn.close()
     return('%s.sqlite' % dbName)
 
+def makeupDB_bam(bam_file,dbName, batchsize=500000):
+    '''
+    Create sqlite database for bed alignment file 
+    '''
+    conn = sqlite3.connect('%s.sqlite' % dbName)
+    cursor = conn.cursor()
+    # 创建调整后的表
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS reads_length (
+        read_id TEXT PRIMARY KEY,
+        length INTEGER
+    )
+    ''')
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS reads_alignment (
+        id INTEGER PRIMARY KEY,
+        read_id TEXT,
+        chrom TEXT,
+        start INTEGER,
+        end INTEGER,
+        mapQ INTEGER,
+        strand TEXT,
+        FOREIGN KEY (read_id) REFERENCES reads_length (read_id)
+    )
+    ''')
+    # 创建索引
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_read_id ON reads_alignment (read_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_read_id ON reads_length (read_id)')
+    conn.commit()
+    for bam in bam_file.split(","):
+        with pysam.AlignmentFile(bam) as tbx:
+            batch_insert_data = []
+            RecordNum = 0
+            for row in tbx.fetch():
+                # 将每行数据添加到列表中
+                strand = "+"
+                if row.is_reverse:
+                    strand = "-"
+                batch_insert_data.append((row.query_name, row.reference_name, row.reference_start, row.reference_end, row.mapping_quality, strand))
+                # 每累积一定数量的数据后执行一次批量插入
+                if len(batch_insert_data) >= batchsize:  # 例如，每10w行为一个批次
+                    cursor.executemany('''
+                    INSERT INTO reads_alignment (read_id, chrom, start, end, mapQ, strand)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ''', batch_insert_data)
+                    conn.commit()
+                    batch_insert_data = []  # 清空列表，为下一个批次准备
+                    RecordNum += batchsize
+                    logging.info(f"{RecordNum} alignment record insert to reads_alignment table")
+            # 插入剩余的数据
+            if batch_insert_data:
+                cursor.executemany('''
+                INSERT INTO reads_alignment (read_id, chrom, start, end, mapQ, strand)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ''', batch_insert_data)
+                conn.commit()
+                RecordNum += len(batch_insert_data)
+                logging.info(f"reads_alignment table finished data insertion with {RecordNum} alignment record inserted")
+            else:
+                logging.info(f"reads_alignment table finished data insertion with {RecordNum} alignment record inserted")
+            RecordNum = 0
+    cursor.close()
+    conn.close()
+    return('%s.sqlite' % dbName)
+
 # find reads 
 def query_reads(dbFile, read_id):
     # Update V19 : Consider multiple dbFile status 
@@ -480,5 +545,63 @@ def background(windowFile, bed_file, dbFile,showchromSpan=False,workthread=100):
         df = pd.DataFrame(bg,columns=['window', 'COV', 'mapQRate'])
     return(df)
 
+def windowInfo_bam(window, bam_file, dbFile, mapQcutoff=5,showchromSpan=False, showmapQ=False):
+    # detect read Number of each imput window in chrom\tstart\tend format 
+    # detect read mapQ of each input window 
+    logging.info(f"Work on window {window}")
+    chrom,start,end = window.strip().split("\t")[0:3]
+    window_write = chrom + "_" + start + "_" + end
+    windowLen = int(end) - int(start)
+    readList = []
+    # Update V19: Consider multiple bed status 
+    for bamfile in bam_file.split(","):
+        with pysam.AlignmentFile(bamfile) as tbx:
+            for reads in tbx.fetch(chrom,int(start), int(end)):
+                strand = "+"
+                if reads.is_reverse:
+                    strand = "-"
+                readList.append([reads.reference_name, str(reads.reference_start), str(reads.reference_end), 
+                                reads.query_name, str(reads.mapping_quality), strand])
+    readDf = pd.DataFrame(readList, columns=['chrom', 'start','end','readID','mapQ', 'strand'])
+    for col in ['start', 'end', 'mapQ']:
+        readDf[col] = readDf[col].apply(int)
+    readDf_group = pd.concat([readDf.groupby('readID')['chrom'].apply(lambda x: list(x)[0]), 
+                              readDf.groupby('readID')['start'].apply(lambda x: np.min(x)),
+                              readDf.groupby('readID')['end'].apply(lambda x: np.max(x)),
+                              readDf.groupby('readID')['mapQ'].apply(lambda x: np.min(x)),
+                              readDf.groupby('readID')['strand'].apply(lambda x: list(x)[0])], axis=1)
+    if readDf_group.shape[0] > 0:
+        readDf_group['covLen'] = readDf_group.apply(lambda x: OVLEN(window, x['start'], x['end']), axis=1)
+        MAPQ_Rate = readDf_group.loc[readDf_group['mapQ']<mapQcutoff].shape[0] / readDf_group.shape[0] if readDf_group.shape[0]!=0 else np.nan
+        COV_Rate = np.sum(readDf_group['covLen']) / windowLen
+        readIDList = list(readDf_group.index)
+        if showchromSpan:
+            spanChromRate = spanchrRatio(readIDList, dbFile)
+            logging.info(f"Finished Work on window {window}")
+            return([window_write, COV_Rate, MAPQ_Rate, spanChromRate, ",".join(readIDList)])
+        else:
+            logging.info(f"Finished Work on window {window}")
+            return([window_write, COV_Rate, MAPQ_Rate])
+    else:
+        COV_Rate, MAPQ_Rate, spanChromRate = np.nan,np.nan,np.nan
+        if showchromSpan:
+            logging.info(f"Finished Work on window {window}")
+            return([window_write, COV_Rate, MAPQ_Rate, spanChromRate, ''])
+        else:
+            logging.info(f"Finished Work on window {window}")
+            return([window_write, COV_Rate, MAPQ_Rate])    
 
+def background_bam(windowFile, bam_file, dbFile,showchromSpan=False,workthread=100):
+    with open(windowFile) as input:
+        windowList = input.readlines()
+    if showchromSpan:
+        windowList = [x for x in windowList if re.search(r'EMOutput', x)]
+    windowInfo_exe = functools.partial(windowInfo_bam, bam_file=bam_file, dbFile=dbFile, showchromSpan=showchromSpan)
+    with ProcessPoolExecutor(max_workers=int(workthread)) as executor:
+        bg = list(executor.map(windowInfo_exe, windowList))
+    if showchromSpan:
+        df = pd.DataFrame(bg,columns=['window', 'COV', 'mapQRate', 'chromSpan', 'TotalReadID'])
+    else:
+        df = pd.DataFrame(bg,columns=['window', 'COV', 'mapQRate'])
+    return(df)
 

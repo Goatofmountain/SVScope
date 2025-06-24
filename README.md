@@ -35,17 +35,17 @@ The SVScope algorithm consists of three main modules: the DataPrepare module ini
 ### command line
 ```bash
 python src/SVscope.py} DataPrepare \ 
--D ${RepeatWindow} \                               # low complexity and tandem repeat window annotated by RepeatMasker as we provided in doc/hg38.RepeatMasker.TD.Low.mainChr.sort
--W <Genome interval window> \                      # genomic window for normalization by default 10kb window as we provided in doc/hg38_mainChr.10kb.window.bed.
+-D ${RepeatWindow} \                               # low complexity and tandem repeat window annotated by RepeatMasker, by default: SVScope/doc/hg38.RepeatMasker.TD.Low.mainChr.sort.bed
+-W <Genome interval window> \                      # genomic window for normalization by default 10kb window, by default: SVScope/doc/hg38_mainChr.10kb.window.bed
 -T <CaseBam> \                                     # Path of Case sample long-read data alignment data in bam format, we recommand to use minimap2.22 for reads alignment.
 -N <ControlBam> \                                  # Path of Control sample long-read data alignment data in bam format, we recommand to use minimap2.22 for reads alignment.
 -t <CaseID> \                                      # Case SampleID 
 -n <ControlID> \                                   # Control SampleID
 -r <Reference sequence> \                          # reference file in fasta format 
 -s <SaveDir> \                                     # path for result output
---selectwindows \               
---FullProcess \
---cleanupDat \               
+--selectwindows \                                  # If specified, TDScope will run windowselection process. Once saveData set True, this parameter should be specified first. Default: False
+--FullProcess \                                    # If specified, run TDScope process after window selection
+--cleanupDat \                                     # If set, clean up bed.gz and sqlite files for space, by default False
 -p <Thread>                                        # Number of CPU used for calculation
 
 python src/CheckInner-alignmentSVs.adjustVCF.py \
