@@ -60,14 +60,14 @@ def TDscope(TDRecord, DataMaker, DataMaker2, DecisionMaker):
     logging.info(f"pipeline for region {TDRecord} finished Take {time_span}s")
     return(Record)
 
-def TDscope_npz(TDRecord, sequenceList, ReadIDs, flank_5,flank_3):
+def TDscope_npz(TDRecord, sequenceList, ReadIDs, flank_5,flank_3, MSA='spoa'):
     '''
     Pipeline of TDscope accessing npz data 
     
     '''
     start_time = time.time()
     logging.info(f"pipeline for region {TDRecord} start to work")
-    Record = Decision(TDRecord, sequenceList, ReadIDs, flank_5, flank_3)
+    Record = Decision(TDRecord, sequenceList, ReadIDs, flank_5, flank_3, MSA=MSA)
     time_span = time.time() - start_time
     logging.info(f"pipeline for region {TDRecord} finished Take {time_span}s")
     return(Record)
@@ -95,7 +95,7 @@ def main(args):
     file_path = os.path.join(args.savedir, rawoutput)
     with open(args.windowBed) as bedin:
         TDRecordList = ["\t".join(x.strip().split("\t")[0:4]) for x in bedin.readlines()]
-    Decision_exe = functools.partial(Decision, Tlabel='tumor', readcutoff=3, hcutoff=3, scutoff=0.05)
+    Decision_exe = functools.partial(Decision, Tlabel='tumor', readcutoff=3, hcutoff=3, scutoff=0.05, MSA=args.MSA)
     DataMaker_exe = functools.partial(DataMaker, refFile=args.Reference, bamFileList=bamFileList, LabelList=LabelList, offset=offset,mapQ=mapQ)
     DataMaker2_exe = functools.partial(DataMaker2, refFile=args.Reference, bamFileList=bamFileList, LabelList=LabelList, offset=offset,mapQ=mapQ)
     if not os.path.exists(args.savedir):
@@ -132,6 +132,7 @@ if __name__ == "__main__":
     parser.add_argument("-p", "--thread", required=True, help="CPU use for program")
     parser.add_argument("-o", "--offset", type=int, default=50, help="offset default value is 50")
     parser.add_argument("-q", "--mapQ", type=int, default=5, help="mapQ default value is 5")
+    parser.add_argument("-M", "--MSA", type=str, default='spoa', help="Choose MSA algorithm, could be ['spoa', 'abPOA'], representing SIMD-sPOA and adaptive bandage sPOA algorithm, by default SIMD-spoa")
     args = parser.parse_args()
     main(args)
 

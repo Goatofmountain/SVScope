@@ -1,4 +1,9 @@
 import os,re
+os.environ["OMP_NUM_THREADS"] = "1"      # OpenMP
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+os.environ["NUMBA_NUM_THREADS"] = "1"
 import pandas as pd 
 import numpy as np 
 import pysam 
@@ -34,11 +39,14 @@ def check_arguments(args):
     if args.FullProcess and not args.genomeWindow:
         parser.error("--FullProcess requires --genomeWindow to be specified.")
         return(1)
+    if args.MSA not in ['spoa', 'abPOA', 'mafft']:
+        parser.error('SVscope only support spoa or abPOA in current version please choose one of it')
+        return(2)
     return(0)
 
 # Major functions 
 def DataPrepare(args):
-    # Prepare data for TDScope 
+    # Prepare data for SVscope 
     check_res = check_arguments(args)
     if check_res != 0:
         sys.exit(check_res)
@@ -148,10 +156,10 @@ def localGraph_npz(args):
             # Update V29: Add work continuous parameter to avoid breakpoint 
             if FinishedTDRecord:
                 if TDRecord not in FinishedTDRecord:
-                    result = P.apply_async(SomTDDetector.TDscope_npz, (TDRecord, sequenceList, ReadIDs, flank_5,flank_3))
+                    result = P.apply_async(SomTDDetector.TDscope_npz, (TDRecord, sequenceList, ReadIDs, flank_5,flank_3, args.MSA))
                     results.append(result)
             else:
-                result = P.apply_async(SomTDDetector.TDscope_npz, (TDRecord, sequenceList, ReadIDs, flank_5,flank_3))
+                result = P.apply_async(SomTDDetector.TDscope_npz, (TDRecord, sequenceList, ReadIDs, flank_5,flank_3, args.MSA))
                 results.append(result)
     # Update V29: Add work continuous parameter to avoid breakpoint 
     if FinishedTDRecord:
@@ -197,16 +205,13 @@ def localGraph(args):
     file_path = os.path.join(args.savedir, rawoutput)
     with open(args.windowBed) as bedin:
         TDRecordList = ["\t".join(x.strip().split("\t")) for x in bedin.readlines()]
-    Decision_exe = functools.partial(Decision, Tlabel='tumor', readcutoff=3, hcutoff=3, scutoff=0.05)
+    Decision_exe = functools.partial(Decision, Tlabel='tumor', readcutoff=3, hcutoff=3, scutoff=0.05, MSA=args.MSA)
     DataMaker_exe = functools.partial(DataMaker, refFile=args.Reference, bamFileList=bamFileList, LabelList=LabelList, offset=offset,mapQ=mapQ)
     DataMaker2_exe = functools.partial(DataMaker2, refFile=args.Reference, bamFileList=bamFileList, LabelList=LabelList, offset=offset,mapQ=mapQ)
     if not os.path.exists(args.savedir):
         os.mkdir(args.savedir)
     ## Run program 
-    if int(args.thread) > 6:
-        P = Pool(processes=6)
-    else:
-        P = Pool(processes=int(args.thread))
+    P = Pool(processes=int(args.thread))
     results = []
     for TDRecord in TDRecordList:
         result = P.apply_async(SomTDDetector.TDscope, (TDRecord,DataMaker_exe,DataMaker2_exe,Decision_exe,))
@@ -254,8 +259,8 @@ def AlnFeature(args):
     #     dbFile_normal = makeupDB(NbedFile, os.path.join(args.savedir, "Normal"))
     # Update V31: remove bed.gz tmp file process to optimize time cost 
     if not os.path.exists(dbFile_tumor):
-        dbFile_tumor = makeupDB(args.Tumorbam, os.path.join(args.savedir, "Tumor"))
-        dbFile_normal = makeupDB(args.Normalbam, os.path.join(args.savedir, "Normal"))
+        dbFile_tumor = makeupDB_bam(args.Tumorbam, os.path.join(args.savedir, "Tumor"))
+        dbFile_normal = makeupDB_bam(args.Normalbam, os.path.join(args.savedir, "Normal"))
     # Update V31: remove bed.gz tmp file process to optimize time cost
     # Load COV and MapQ 
     # bg_df_T = background(args.genomeWindow, TbedFile, dbFile_tumor, showchromSpan=False, workthread=int(args.thread))
@@ -276,8 +281,10 @@ def AlnFeature(args):
     SV_df_N['mapQ_Zscore'] = SV_df_N['mapQRate'].apply(lambda x: (x-np.mean(bg_df_N_nafree['mapQRate'])) / np.std(bg_df_N_nafree['mapQRate']))
     SV_df_T = SV_df_T.drop_duplicates()
     SV_df_N = SV_df_N.drop_duplicates()
-    SV_df_T.index = SV_df_T['window'].apply(lambda x: "_".join(x.split("_")[:2])+"-" + x.split("_")[-1])
-    SV_df_N.index = SV_df_N['window'].apply(lambda x: "_".join(x.split("_")[:2])+"-" + x.split("_")[-1])
+    # SV_df_T.index = SV_df_T['window'].apply(lambda x: "_".join(x.split("_")[:2])+"-" + x.split("_")[-1])
+    # SV_df_N.index = SV_df_N['window'].apply(lambda x: "_".join(x.split("_")[:2])+"-" + x.split("_")[-1])                # New Index method to Avoid alternative chromosome 
+    SV_df_T.index = SV_df_T['window'].apply(lambda x: "_".join(x.split("_")[:-2])+"_"+"-".join(x.split("_")[-2:]))
+    SV_df_N.index = SV_df_N['window'].apply(lambda x: "_".join(x.split("_")[:-2])+"_"+"-".join(x.split("_")[-2:]))
     # Get Mis Score 
     SeqCompareDf_Filter = PairwiseCompare.MisScorePipe(args.rawBedFile).drop_duplicates()
     SeqCompareDf_Filter.index = SeqCompareDf_Filter['chrom'] + "_" + SeqCompareDf_Filter['start'].apply(str) + "-" + SeqCompareDf_Filter['end'].apply(str)
@@ -293,21 +300,23 @@ def AlnFeature(args):
     SVwindowList = np.intersect1d(SeqCompareDf_Filter.index, df_SVwindow_Filter.index)
     # Calculate adapted reads percentage from Normal and tumor 
     ReadPool = pd.concat([SV_df_T.loc[SVwindowList, ['window', 'COV_Zscore', 'mapQ_Zscore', 'chromSpan']],
-                          SV_df_N.loc[SVwindowList, ['COV_Zscore', 'mapQ_Zscore', 'chromSpan']],
-                          df_SVwindow_Filter.loc[SVwindowList, 'SomReads'], 
-                          df_SVwindow_Filter.loc[SVwindowList, 'SomReads'].apply(lambda x: [a.split("|")[-1] for a in ",".join(x.split(";")).split(",")]) + df_SVwindow_Filter.loc[SVwindowList,'GermReads'].apply(lambda x: [a.split("|")[-1] for a in ",".join(x.split(";")).split(",")]),
-                          SV_df_T.loc[SVwindowList, 'TotalReadID'].apply(lambda x: x.split(",")),
-                          SV_df_T.loc[SVwindowList, 'mapQRate'],
-                          SV_df_N.loc[SVwindowList, 'TotalReadID'].apply(lambda x: x.split(",")),
-                          SV_df_N.loc[SVwindowList, 'mapQRate'], 
-                          SeqCompareDf_Filter.loc[SVwindowList, 'ABSMisScore']], axis=1)
+                            SV_df_N.loc[SVwindowList, ['COV_Zscore', 'mapQ_Zscore', 'chromSpan']],
+                            df_SVwindow_Filter.loc[SVwindowList, 'SomReads'], 
+                            df_SVwindow_Filter.loc[SVwindowList, 'SomReads'].apply(lambda x: [a.split("|")[-1] for a in ",".join(x.split(";")).split(",")]) + df_SVwindow_Filter.loc[SVwindowList,'GermReads'].apply(lambda x: [a.split("|")[-1] for a in ",".join(x.split(";")).split(",")]),
+                            SV_df_T.loc[SVwindowList, 'TotalReadID'].apply(lambda x: x.split(",")),
+                            SV_df_T.loc[SVwindowList, 'mapQRate'],
+                            SV_df_N.loc[SVwindowList, 'TotalReadID'].apply(lambda x: x.split(",")),
+                            SV_df_N.loc[SVwindowList, 'mapQRate'], 
+                            SeqCompareDf_Filter.loc[SVwindowList, 'ABSMisScore']], axis=1)
     ReadPool.columns = ['window', 'COV_Tumor', 'mapQ_Tumor', 'chromSpan_Tumor', 'COV_Normal', 'mapQ_Normal', 'chromSpan_Normal', 'SomReads', 'AdaptReads', 'TotalRead_T', 'mapQRate_T', 'TotalRead_N', 'mapQRate_N', 'ABSMisScore']
     ReadPool['AdaptRatio_T'] = ReadPool.apply(lambda x: np.intersect1d(x['AdaptReads'], x['TotalRead_T']).shape[0] / (len(x['TotalRead_T'])*(1-x['mapQRate_T'])) if len(x['TotalRead_T'])*(1-x['mapQRate_T'])>0 else 0, axis=1)
     ReadPool['AdaptRatio_N'] = ReadPool.apply(lambda x: np.intersect1d(x['AdaptReads'], x['TotalRead_N']).shape[0] / (len(x['TotalRead_N'])*(1-x['mapQRate_N'])) if len(x['TotalRead_N'])*(1-x['mapQRate_N'])>0 else 0, axis=1)
     ReadPool['SupportReadSpanRatio'] = ReadPool.loc[ReadPool.index, 'SomReads'].apply(lambda x: spanchrRatio([a.split("|")[-1] for a in ",".join(x.split(";")).split(",")], dbFile_tumor))
     # Load random forest model to get predicition 
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    model = load(os.path.join(script_dir,'RandomForest.1218.WholeData8-2.FinalModel.joblib'))
+    model = load(os.path.join(script_dir,'Model_pb.joblib'))
+    if args.platform=='ONT':
+        model = load(os.path.join(script_dir,'Model_ont.joblib'))
     X_scaled = ReadPool[['COV_Tumor', 'mapQ_Tumor', 'COV_Normal', 'mapQ_Normal', 'ABSMisScore', 'chromSpan_Tumor', 'chromSpan_Normal', 'AdaptRatio_T', 'AdaptRatio_N', 'SupportReadSpanRatio']]
     yprob = model.predict_proba(X_scaled)[:, 1]
     y_hat = model.predict(X_scaled)
@@ -359,12 +368,12 @@ def main():
     doc_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../doc')
     # Main parser 
     parser = argparse.ArgumentParser(
-        prog='TDScope.py',
-        description='TDScope: A computational system for somatic SV calling with local graph genome optimization and whole genome alignment feature adjustment',
+        prog='SVscope.py',
+        description='SVscope: A computational system for somatic SV calling with local graph genome optimization and whole genome alignment feature adjustment',
         epilog='''
-        Use python TDScope.py <command> -h to view help information for a specific command
+        Use python SVscope.py <command> -h to view help information for a specific command
         Available commands:
-            -DataPrepare: Run dataprepare process user can also choose to run directly until TDScope finished
+            -DataPrepare: Run dataprepare process user can also choose to run directly until SVscope finished
             -localGraph: Run Local graph optimization module on candidate somatic SV window 
             -AlnFeature: collect feature from spanned reads of each potential somatic SV selected by localGrpah 
             -callsomaticSV: Call somatic SV and output in vcf format
@@ -378,7 +387,7 @@ def main():
     subparsers = parser.add_subparsers(
         dest='command',
         help='Available commands:',
-        description='These are the commands supported by TDScope.py:'
+        description='These are the commands supported by SVscope.py:'
     )
     # Update Version 26: Add data prepare sub-command 
     parser_DataPrepare = subparsers.add_parser(
@@ -395,11 +404,13 @@ def main():
     parser_DataPrepare.add_argument("-p", "--thread", required=True, help="CPU use for program")
     # parser_DataPrepare.add_argument("-D", "--tandemRepeatFile", type=str, default=os.path.join(doc_dir, 'hg38.RepeatMasker.TD.Low.mainChr.sort.bed'), help="BedFile annotation for tandem repeat region masked by repeatmasker")
     # parser_DataPrepare.add_argument('-W', '--genomeWindow', type=str, default=os.path.join(doc_dir, 'hg38_mainChr.10kb.window.bed'), help="gernomic window file, by default 10kb window bed could fetch by using bedtools makewindows command. Required if --FullProcess is specified")
+    parser_DataPrepare.add_argument('-M', "--MSA", type=str, default='abPOA', help="Choose MSA algorithm, could be ['spoa', 'abPOA', 'mafft'], representing SIMD POA and adaptive bandage sPOA algorithm, by default abPOA")
+    parser_DataPrepare.add_argument("--platform", type=str, default='PacBio', help="Choose platform, could be ['ONT', 'PacBio'], by default PacBio")
     parser_DataPrepare.add_argument("-o", "--offset", type=int, default=50, help="offset default value is 50")
     parser_DataPrepare.add_argument("-q", "--mapQ", type=int, default=5, help="mapQ default value is 5")
-    parser_DataPrepare.add_argument("--selectwindows", action='store_true', default=False, help='If specified, TDScope will run windowselection process. Once saveData set True, this parameter should be specified first. Default: False')
+    parser_DataPrepare.add_argument("--selectwindows", action='store_true', default=False, help='If specified, SVscope will run windowselection process. Once saveData set True, this parameter should be specified first. Default: False')
     parser_DataPrepare.add_argument("--saveData", action='store_true', default=False, help='If specified, save intermediate read sequence data within candidate window into .npzFile. Default: False')
-    parser_DataPrepare.add_argument('--FullProcess', action='store_true', default=False, help='If specified, run TDScope process after window selection')
+    parser_DataPrepare.add_argument('--FullProcess', action='store_true', default=False, help='If specified, run SVscope process after window selection')
     parser_DataPrepare.add_argument("-c", '--cleanupDat', action='store_true', default=False, help="If set, clean up bed.gz and sqlite files for space, by default False")
     parser_DataPrepare.set_defaults(func=DataPrepare)
     # Add LocalGraph sub-command 
@@ -418,6 +429,7 @@ def main():
     parser_localGraph.add_argument("-p", "--thread", required=True, help="CPU use for program")
     parser_localGraph.add_argument("-o", "--offset", type=int, default=50, help="offset default value is 50")
     parser_localGraph.add_argument("-q", "--mapQ", type=int, default=5, help="mapQ default value is 5")
+    parser_localGraph.add_argument('-M', "--MSA", type=str, default='spoa', help="Choose MSA algorithm, could be ['spoa', 'abPOA', 'mafft'], representing SIMD-sPOA and adaptive bandage sPOA algorithm, by default SIMD-spoa")
     parser_localGraph.set_defaults(func=localGraph)
     # Add LocalGraph_npz sub-command 
     parser_localGraph_npz = subparsers.add_parser(
@@ -432,6 +444,7 @@ def main():
     parser_localGraph_npz.add_argument("-o", "--offset", type=int, default=50, help="offset default value is 50")
     parser_localGraph_npz.add_argument("-q", "--mapQ", type=int, default=5, help="mapQ default value is 5")
     parser_localGraph_npz.add_argument("-C", '--Continue', action='store_true', default=False, help="If set, continue local graph work according to current Raw.bed File")
+    parser_localGraph_npz.add_argument('-M', "--MSA", type=str, default='abPOA', help="Choose MSA algorithm, could be ['spoa', 'abPOA'], representing SIMD-sPOA and adaptive bandage sPOA algorithm, by default abPOA")
     parser_localGraph_npz.set_defaults(func=localGraph_npz)
     # Add AlnFeature sub-command 
     parser_AlnFeature = subparsers.add_parser(
@@ -448,11 +461,12 @@ def main():
     parser_AlnFeature.add_argument("-r", "--Reference", required=True, help="reference file fasta path must have fai file in the same pathway")
     parser_AlnFeature.add_argument("-s", "--savedir", required=True, help="dir for result file save the bed dir ")
     parser_AlnFeature.add_argument("-p", "--thread", required=True, help="CPU use for program")
+    parser_AlnFeature.add_argument("--platform", type=str, default='PacBio', help="Choose platform, could be ['ONT', 'PacBio'], by default PacBio")
     parser_AlnFeature.set_defaults(func=AlnFeature)
     # Add callsomaticSV process, a merge of localGraph and AlnFeature
     parser_callsomaticSV = subparsers.add_parser(
         'callsomaticSV',
-        help='Run Full process of TDscope finally output the vcf format file'
+        help='Run Full process of SVscope finally output the vcf format file'
     )
     parser_callsomaticSV.add_argument("-w", "--windowBed", required=True, help="pre made candidate somatic SV windows chrom,repeatStart,repeatEnd")
     parser_callsomaticSV.add_argument("-T", "--Tumorbam", required=True, help="ONT read alignment bam file, multiple bam should seperated with ','")
@@ -465,6 +479,7 @@ def main():
     # parser_DataPrepare.add_argument('-W', '--genomeWindow', type=str, default=os.path.join(doc_dir, 'hg38_mainChr.10kb.window.bed'), help="gernomic window file, by default 10kb window bed could fetch by using bedtools makewindows command. Required if --FullProcess is specified")
     parser_callsomaticSV.add_argument("-o", "--offset", type=int, default=50, help="offset default value is 50")
     parser_callsomaticSV.add_argument("-q", "--mapQ", type=int, default=5, help="mapQ default value is 5")
+    parser_callsomaticSV.add_argument('-M', "--MSA", type=str, default='spoa', help="Choose MSA algorithm, could be ['spoa', 'abPOA'], representing SIMD-sPOA and adaptive bandage sPOA algorithm, by default SIMD-spoa")
     parser_callsomaticSV.add_argument("-c", '--cleanupDat', action='store_true', default=False, help="If set, clean up bed.gz and sqlite files for space, by default False")
     parser_callsomaticSV.set_defaults(func=callsomaticSV)
     args = parser.parse_args()

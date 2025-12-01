@@ -27,7 +27,9 @@ def AdjustTandemRepeatINS(savedir):
         bedtools intersect file LC.somatic.bed vs CandidateSpan.tumor.merged.somatic.bed 
         dataframe recording the UUID relationship between LC region and CandidateSpanRegion
     '''
-    vcfFile = '{savedir}/{sampleID}_tumor.mergedSomatic.vcf'.format(savedir=savedir, sampleID=os.path.basename(savedir))
+    # vcfFile = '{savedir}/{sampleID}_tumor.mergedSomatic.vcf'.format(savedir=savedir, sampleID=os.path.basename(savedir))
+    FileName = [x for x in os.listdir(savedir) if re.search('mergedSomatic', x)][0]
+    vcfFile = f'{savedir}/{FileName}'
     tmpFile = '{savedir}/somaticINS.region.bed'.format(savedir=savedir)
     output = open(tmpFile,'w')
     with open(vcfFile) as intput:
@@ -49,8 +51,8 @@ def AdjustTandemRepeatINS(savedir):
         df = pd.read_csv('{savedir}/LC.vs.Candidate.bed'.format(savedir=savedir), header=None, sep="\t")
         df.columns = ['chrom(LC)', 'start(LC)', 'end(LC)', 'Tread(LC)', 'Nread(LC)', 'Type(LC)', 
                       'chrom(Span)', 'start(Span)', 'end(Span)', 'Tread(Span)', 'Nread(Span)', 'Type(Span)']
-        df['LCUUID'] = 'TDscope.'+df['Type(LC)']+"."+df['chrom(LC)']+"_"+df['start(LC)'].apply(str)+"-"+df['end(LC)'].apply(str)
-        df['SpanUUID'] = 'TDscope.'+df['Type(Span)']+"."+df['chrom(Span)']+"_"+df['start(Span)'].apply(str)+"-"+df['end(Span)'].apply(str)
+        df['LCUUID'] = 'SVscope.'+df['Type(LC)']+"."+df['chrom(LC)']+"_"+df['start(LC)'].apply(str)+"-"+df['end(LC)'].apply(str)
+        df['SpanUUID'] = 'SVscope.'+df['Type(Span)']+"."+df['chrom(Span)']+"_"+df['start(Span)'].apply(str)+"-"+df['end(Span)'].apply(str)
         return(df[['LCUUID', 'SpanUUID']])
     else:
         return(pd.DataFrame([]))
@@ -61,7 +63,9 @@ def VcfWindowLoading(savedir, excludechrom='chrM'):
     Record Head and 
     '''
     TRIDf = AdjustTandemRepeatINS(savedir)
-    vcfFile = '{savedir}/{sampleID}_tumor.mergedSomatic.vcf'.format(savedir=savedir, sampleID=os.path.basename(savedir))
+    FileName = [x for x in os.listdir(savedir) if re.search('mergedSomatic', x)][0]
+    vcfFile = f'{savedir}/{FileName}'
+    # vcfFile = '{savedir}/{sampleID}_tumor.mergedSomatic.vcf'.format(savedir=savedir, sampleID=os.path.basename(savedir))
     if TRIDf.shape[0] > 0:
         TRIRegionUUID = np.unique(TRIDf['LCUUID'])
         TRIRegionUUID_small = np.unique(TRIDf['SpanUUID'])

@@ -1,7 +1,10 @@
 '''
 __Author__: Kailing Tu
-__Version__: v18.0.0
-__ReleaseTime__: 2024-03-22
+__Version__: v20.0.0
+__ReleaseTime__: 2025-11-06
+
+ReleaseNote:
+    extend abPOA, other MSA methods with biopython version 1.83 
 
 ReleaseNote:
     Change FetchTDsubSeq. Now we are going to consider both supplementary and secondary alignment reads, the aim of FetchTDsubSeq is to find the 5'Flank start and 3'Flank end for each reads with primary alignment in TD region
@@ -33,16 +36,29 @@ Description: Parsing ONT bam file to find aim read sequence and filter out low q
             Further, it will remove regions matched to 5' and 3' flank sequence based on hg38 reference (defined by Call Margin)
         DataMaker:
             Function to scan bam file according to the TD bed record and filter proper sub reads for further analysis
+        MSAFeatureSelection: 
+            Function to make local MSA for SVscope. Update at 2025-10-16 by Kailing Tu: Add abPOA for MSA process.
 '''
+import os,re
+os.environ["OMP_NUM_THREADS"] = "1"      # OpenMP
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+os.environ["NUMBA_NUM_THREADS"] = "1"
 import pandas as pd 
 from spoa import poa
+import pyabpoa as pa               # import abPOA python api (Kailing Tu Update at 2025-10-16)
 import pysam 
 import numpy as np
-import os,re
 import sqlite3
 from concurrent.futures import ProcessPoolExecutor
 import logging
 import functools
+from Bio.Seq import Seq
+from Bio.SeqRecord import SeqRecord
+from Bio.Align.Applications import MuscleCommandline, ClustalOmegaCommandline, MafftCommandline
+from Bio import AlignIO, SeqIO
+import tempfile, subprocess, io, os
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -178,17 +194,41 @@ def FindNonSameSite(seqencode_New_Sub, cutoff=3):
     NonSameSiteIDX = np.where(np.sort(FeatureCountArr, axis=0)[-2] >= cutoff)[0]
     return(NonSameSiteIDX)
 
-def MSAFeatureSelection(sequenceList, flank_5, flank_3, readIDList, hcutoff=3, scutoff=0.05):
+# Build in Other MSA methods, by default mafft 
+def msa_from_list_stdin(seq_records, engine="mafft"):
+    """Run expensive MSA process"""
+    # move fasta file into memory 
+    fasta_str = io.StringIO()
+    SeqIO.write(seq_records, fasta_str, "fasta")
+    if engine == "muscle":
+        cmd = ["muscle", "-quiet"]
+    elif engine == "clustalo":
+        cmd = ["clustalo", "--infile=-", "--outfile=-", "--force"]
+    elif engine == "mafft":
+        cmd = ["mafft", "--quiet", "--thread", "1", "-"]
+    else:
+        raise ValueError("stdin mode only support muscle/clustalo")
+    proc = subprocess.run(cmd,
+                          input=fasta_str.getvalue(),
+                          text=True,
+                          capture_output=True,
+                          check=True)
+    aln = AlignIO.read(io.StringIO(proc.stdout), "fasta")
+    seqList = [str(rec.seq).upper() for rec in aln]
+    return seqList
+
+def MSAFeatureSelection(sequenceList, flank_5, flank_3, readIDList, hcutoff=3, scutoff=0.05, MSA='spoa'):
     '''
     Make MAS and select features for MSA matrix 
     -*-: Fixed full read DEL stage, to avoid such reads drop out from poa process, we set DELIDX if loop to filter out these reads and finally add it back to the bottom of seqencode_New with full gap data. (Kailing Tu at 2024-08-19)
     :param:
         sequenceList: list object with reference sequence at the first position, other read subsequence follows
-        flank_5: 5' flank sequence with all upper str generated from reference genome 
-        flank_3: 3' flank sequence with all upper str generated from reference genome
-        readIDList: read ID list for all reads with labels 
-        hcutoff : second frequency feature number cutoff, default 3 
-        scutoff : second frequency feature number percentage cutoff, default 0.05
+        flank_5     :   5' flank sequence with all upper str generated from reference genome 
+        flank_3     :   3' flank sequence with all upper str generated from reference genome
+        readIDList  :   read ID list for all reads with labels 
+        hcutoff     :   second frequency feature number cutoff, default 3 
+        scutoff     :   second frequency feature number percentage cutoff, default 0.05
+        MSA         :   Choose MSA algorithm, could be ['spoa', 'abPOA'], representing SIMD-sPOA and adaptive bandage sPOA algorithm, by default SIMD-spoa
     :return:
         seqencode_New: MSA aligned and re-encoded matrix for visualization 
         seqdatamx: MSA aligned, re-encoded and feature selected matrix for EM clustering pipeline
@@ -198,20 +238,50 @@ def MSAFeatureSelection(sequenceList, flank_5, flank_3, readIDList, hcutoff=3, s
     sequences = sequenceList
     readLen = np.array([len(x) for x in sequences[1:]])
     DELIDX = np.where(readLen==0)[0]
-    if DELIDX.shape[0] > 0:      # Fully DEL reads exist impute alignment matrix as fully gap 
-        UnDELIDX = np.setdiff1d(np.arange(len(readIDList)), DELIDX)
-        UnDELReads = list(readIDList[UnDELIDX])
-        DELReads = list(readIDList[UnDELIDX])
-        UnDELSeq = [sequences[I] for I in UnDELIDX]
-        unconsensus, unmsa = poa(sequences,1)
-        unseqencode_New = list(map(SeqEncoder, unmsa))
-        mxlen = len(unseqencode_New[-1])
-        readIDList = np.array(UnDELReads + DELReads)     # array in array back
-        seqencode_New = np.array(unseqencode_New + [[4] * mxlen] * len(DELReads))
-        msa = unmsa + [["-"] * mxlen] * len(DELReads)
+    UnDELIDX = np.setdiff1d(np.arange(len(readIDList)), DELIDX)
+    UnDELReads = list(readIDList[UnDELIDX])
+    DELReads = list(readIDList[UnDELIDX])
+    if MSA == 'spoa':        # SIMD-sPOA would delate full delation sequence in the msa output. We require to check sequence length here to avoid unmatched read number.
+        if DELIDX.shape[0] > 0:      # Fully DEL reads exist impute alignment matrix as fully gap 
+            UnDELSeq = [sequences[0]] + [sequences[1:][I] for I in UnDELIDX]
+            unconsensus, unmsa = poa(UnDELSeq,1)
+            unseqencode_New = list(map(SeqEncoder, unmsa))
+            mxlen = len(unseqencode_New[-1])
+            readIDList = np.array(UnDELReads + DELReads)     # array in array back
+            seqencode_New = np.array(unseqencode_New + [[4] * mxlen] * len(DELReads))
+            msa = unmsa + [["-"] * mxlen] * len(DELReads)
+        else:
+            consensus, msa = poa(sequences,1)
+            seqencode_New = np.array(list(map(SeqEncoder, msa)))
+    elif MSA == 'abPOA':      # abPOA would keep full delation sequence in the msa output. So it is no need to check sequence length.
+        a = pa.msa_aligner()
+        if DELIDX.shape[0] > 0:      # Fully DEL reads exist impute alignment matrix as fully gap 
+            UnDELSeq = [sequences[0]] + [sequences[1:][I] for I in UnDELIDX]
+            aln_res = a.msa(UnDELSeq, out_cons=False, out_msa=True) # perform multiple sequence alignment with abPOA 
+            unmsa = aln_res.msa_seq
+            unseqencode_New = list(map(SeqEncoder, unmsa))
+            mxlen = len(unseqencode_New[-1])
+            seqencode_New = np.array(unseqencode_New + [[4] * mxlen] * len(DELReads))
+            msa = unmsa + [["-"] * mxlen] * len(DELReads)
+            readIDList = np.array(UnDELReads + DELReads)
+        else:
+            aln_res = a.msa(sequences, out_cons=False, out_msa=True) # perform multiple sequence alignment with abPOA 
+            msa = aln_res.msa_seq
+            seqencode_New = np.array(list(map(SeqEncoder, msa)))
     else:
-        consensus, msa = poa(sequences,1)
-        seqencode_New = np.array(list(map(SeqEncoder, msa)))
+        if DELIDX.shape[0] > 0:      # Fully DEL reads exist impute alignment matrix as fully gap 
+            UnDELSeq = [sequences[0]] + [sequences[1:][I] for I in UnDELIDX]
+            seq_records = [SeqRecord(Seq(sequence), id=str(i)) for i,sequence in enumerate(UnDELSeq)]
+            unmsa = msa_from_list_stdin(seq_records, engine=MSA)
+            unseqencode_New = list(map(SeqEncoder, unmsa))
+            mxlen = len(unseqencode_New[-1])
+            readIDList = np.array(UnDELReads + DELReads)     # array in array back
+            seqencode_New = np.array(unseqencode_New + [[4] * mxlen] * len(DELReads))
+            msa = unmsa + [["-"] * mxlen] * len(DELReads)
+        else:
+            seq_records = [SeqRecord(Seq(sequence), id=str(i)) for i,sequence in enumerate(sequences)]
+            msa = msa_from_list_stdin(seq_records, engine=MSA)
+            seqencode_New = np.array(list(map(SeqEncoder, msa)))
     # Remove the Non-associated flank sequence based on reference backbone 
     IDXPool = CallMargin(msa, flank_5, flank_3)
     TDseq_Raw = seqencode_New[1:,np.setdiff1d(np.arange(seqencode_New.shape[1]), IDXPool)]
@@ -232,9 +302,9 @@ def DataMaker(TDRecord, refFile, bamFileList, LabelList, offset=200,mapQ=5):
     flank_5,flank_3 = refFasta.fetch(chrom, int(start)-offset, int(start)).upper(), refFasta.fetch(chrom, int(end),int(end)+offset).upper()
     exampleSequence = refFasta.fetch(chrom, int(start)-offset, int(end)+offset).upper()
     if re.search('N', flank_5) or re.search('N', flank_3) or re.search('N', exampleSequence):
-            sequenceList = np.array([])
-            ReadIDs = np.array([])
-            flag = "GapRegion"
+        sequenceList = np.array([])
+        ReadIDs = np.array([])
+        flag = "GapRegion"
     elif (len(CertainIDX) <= 3):
         sequenceList = np.array([])
         ReadIDs = np.array([])

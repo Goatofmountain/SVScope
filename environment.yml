@@ -1,0 +1,20 @@
+name: SVScope-env
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - python=3.8
+  - pip
+  - pysam
+  - pyspoa>=0.2.1
+  - pyabpoa>=1.5.3
+  - numpy
+  - pandas
+  - scipy
+  - scikit-learn=1.0.2
+  - matplotlib
+  - statsmodels
+  - biopython
+  - bedtools
+  - mafft

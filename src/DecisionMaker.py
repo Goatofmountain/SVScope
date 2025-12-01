@@ -1,7 +1,7 @@
 
 ''''
 __Author__: Kailing Tu
-__Version__: v18.0.0
+__Version__: v20.0.0
 __ReleaseTime__: 2024-11-26
 Requirement:
     pysam v0.19.1
@@ -23,12 +23,18 @@ Description: Parsing ONT bam file to find aim read sequence and filter out low q
             'Pvalue'                                                                            # additional pvalue for inter clusters test 
             ]
 '''
-
+import os 
+os.environ["OMP_NUM_THREADS"] = "1"      # OpenMP
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+os.environ["NUMBA_NUM_THREADS"] = "1"
 from ReadsCluster import *
 from DataScanner import *
 import numpy as np
 import pandas as pd
 from spoa import poa
+import pyabpoa as pa               # import abPOA python api (Kailing Tu Update at 2025-10-16)
 from scipy.stats import chi2_contingency, chi2
 import time
 # from Levenshtein import distance as levenshtein_distance
@@ -107,19 +113,21 @@ def MethodTestPipe(refFile, bamFileList, LabelList, TDRecord,Tlabel='tumor', rea
 #             GermClust.append(L)
 #     return(np.array(SomClust), np.array(GermClust), labels)
 
-def Decision(TDRecord, sequenceList, ReadIDs, flank_5,flank_3, windowFlag='NormalOutput', Tlabel='tumor', readcutoff=3, hcutoff=3, scutoff=0.05):
+def Decision(TDRecord, sequenceList, ReadIDs, flank_5,flank_3, windowFlag='NormalOutput', Tlabel='tumor', readcutoff=3, hcutoff=3, scutoff=0.05, MSA='spoa'):
     '''
     Decision for somatic SV
     :param:
-        TDRecord: bed record for candidate region, should contain at least 3 columns in tab split, chrom\tstart\tend
-        sequenceList: subsequence list with reference sequence on the top  
-        ReadIDs: readIDList
-        flank_5: 5' flank sequence in ATCG
-        flank_3: 3' flank sequence in ATCG
-        Tlabel: keyword representing for tumor, by default "tumor"
-        readcutoff: somatic support reads cutoff, by default 3
-        offset: flank sequence length, by default 200
-        hcutoff:
+        TDRecord    :   bed record for candidate region, should contain at least 3 columns in tab split, chrom\tstart\tend
+        sequenceList:   subsequence list with reference sequence on the top  
+        ReadIDs     :   readIDList
+        flank_5     :   5' flank sequence in ATCG
+        flank_3     :   3' flank sequence in ATCG
+        Tlabel      :   keyword representing for tumor, by default "tumor"
+        readcutoff  :   somatic support reads cutoff, by default 3
+        offset      :   flank sequence length, by default 200
+        hcutoff     :   hard cutoff, minimum number of reads require to share sequence feature in MSA to keep in the final feature list, by default 3
+        scutoff     :   soft cutoff, minimum percentage of reads require to share sequence feature in MSA to keep in the final feature list, by default 5%
+        MSA         :   Choose MSA algorithm, could be ['spoa', 'abPOA'], representing SIMD-sPOA and adaptive bandage sPOA algorithm, by default SIMD-spoa
     '''
     # Pipeline for formal run 
     chrom,start,end = TDRecord.strip().split("\t")[0:3]
@@ -133,7 +141,7 @@ def Decision(TDRecord, sequenceList, ReadIDs, flank_5,flank_3, windowFlag='Norma
               0,windowFlag]
     if (len(sequenceList) > 3) and (ReadTags.shape[0]>=2) and (np.min(Tagcount)>=3):
         # Tandem Repeat Regions with somatic supported reads more than 3 should be further analysis with sequence specific model
-        seqencode_New, seqdatamx, ReadIDs = MSAFeatureSelection(sequenceList, flank_5, flank_3, ReadIDs, hcutoff=hcutoff, scutoff=scutoff)
+        seqencode_New, seqdatamx, ReadIDs = MSAFeatureSelection(sequenceList, flank_5, flank_3, ReadIDs, hcutoff=hcutoff, scutoff=scutoff, MSA=MSA)
         if (seqdatamx.shape[0] != 0) and (seqdatamx.shape[1]>=10):
             K, seqdatamx, DatLabel, thetap, gamma, pie, BICList = EMCluster(seqdatamx, initselection=1)
             # Check For each cluster and find potential somatic event 
@@ -155,10 +163,15 @@ def Decision(TDRecord, sequenceList, ReadIDs, flank_5,flank_3, windowFlag='Norma
             if len(somaticReadIDXCollect) > 0:     # at least one Somatic SV exist 
                 for somIDX in somaticReadIDXCollect:
                     somSequence = list(map(SeqDecoder, seqencode_New[somIDX+1]))
-                    SeqLen = np.max([len(x) for x in somSequence])
-                    if SeqLen > 0:
-                        consensus, msa = poa(somSequence,1) 
-                        somConsSeq = consensus
+                    SeqLen = np.array([len(x) for x in somSequence])
+                    if np.max(SeqLen) > 0:
+                        if MSA == 'abPOA':
+                            a = pa.msa_aligner()
+                            aln_res = a.msa([som for som in somSequence if len(som)>0], out_cons=True, out_msa=True) # perform multiple sequence alignment with abPOA 
+                            somConsSeq, msa = aln_res.cons_seq[0], aln_res.msa_seq
+                        else:
+                            consensus, msa = poa(somSequence,1) 
+                            somConsSeq = consensus
                         somaticSeqCollect.append(somConsSeq)
                     else:
                         somConsSeq = "-"
@@ -166,10 +179,15 @@ def Decision(TDRecord, sequenceList, ReadIDs, flank_5,flank_3, windowFlag='Norma
             if len(germlineReadIDXCollect) > 0:
                 for germIDX in germlineReadIDXCollect:
                     germSequence = list(map(SeqDecoder, seqencode_New[germIDX+1]))
-                    SeqLen = np.max([len(x) for x in germSequence])
-                    if SeqLen > 0:
-                        consensus, msa = poa(germSequence,1) 
-                        germConsSeq = consensus
+                    SeqLen = np.array([len(x) for x in germSequence])
+                    if np.max(SeqLen) > 0:
+                        if MSA == 'abPOA':
+                            a = pa.msa_aligner()
+                            aln_res = a.msa([germ for germ in germSequence if len(germ)>0], out_cons=True, out_msa=True) # perform multiple sequence alignment with abPOA 
+                            germConsSeq, msa = aln_res.cons_seq[0], aln_res.msa_seq
+                        else:
+                            consensus, msa = poa(germSequence,1) 
+                            germConsSeq = consensus
                         germlineSeqCollect.append(germConsSeq)
                     else:
                         germConsSeq = '-'

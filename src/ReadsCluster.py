@@ -32,7 +32,12 @@ Modular components:
         Same as EMCluster but more likelihood and parameter visualization during EM step, Function for the author (TKL) to debug
 '''
 
-
+import os 
+os.environ["OMP_NUM_THREADS"] = "1"      # OpenMP
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+os.environ["NUMBA_NUM_THREADS"] = "1"
 import numpy as np
 ## EM Clustering 
 from scipy.cluster.hierarchy import dendrogram, linkage, fcluster

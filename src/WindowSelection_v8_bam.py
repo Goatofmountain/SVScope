@@ -27,6 +27,11 @@ bedtools bamtobed -i <aim bamFile> -cigar | sort -k1,1 -k2,2n | bgzip > <bedFile
 
 '''
 import os,re 
+os.environ["OMP_NUM_THREADS"] = "1"      # OpenMP
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+os.environ["NUMBA_NUM_THREADS"] = "1"
 import numpy as np
 import pandas as pd 
 import pysam 
@@ -49,7 +54,7 @@ def ALN_Record(read_aln):
     # treat fetched read alignemnt record from bam 
     chrom, start, end, read_id, map_q, cigarSTR = read_aln.reference_name, str(read_aln.reference_start), str(read_aln.reference_end), read_aln.qname, str(read_aln.mapq), read_aln.cigarstring
     strand = "-" if read_aln.is_reverse else "+"
-    result = [chrom, start, end, read_id, map_q, cigarSTR, strand]
+    result = [chrom, start, end, read_id, map_q, cigarSTR.replace("=", "M"), strand]
     return(result)
 
 class BamRecordIterator:
@@ -243,7 +248,10 @@ def readsCLIP3_solo(CLIPRecord):
     return(BPList)
 
 def RegionEncoder(BPInfo, chromDict):
-    chrom1,BP1,chrom2,BP2 = re.split(r'[:_]', BPInfo)
+    # chrom1,BP1,chrom2,BP2 = re.split(r'[:_]', BPInfo)      # get error in alternative chromosome like chrUn_KI270742v1
+    chrom1, mix, BP2 = BPInfo.split(":")
+    BP1 = mix.split("_")[0]
+    chrom2 = "_".join(mix.split("_")[1:])
     BP1, BP2 = int(BP1), int(BP2)
     Point1, Point2 = BP1 + chromDict[chrom1], BP2 + chromDict[chrom2]
     if Point1 <=Point2:
@@ -253,7 +261,10 @@ def RegionEncoder(BPInfo, chromDict):
 
 def RegionMaker(BPInfo):
     # make region for DUP type SV chrom1, chrom2 should be the same 
-    chrom1,BP1,chrom2,BP2 = re.split(r'[:_]', BPInfo)
+    # chrom1,BP1,chrom2,BP2 = re.split(r'[:_]', BPInfo)       # get error in alternative chromosome like chrUn_KI270742v1
+    chrom1, mix, BP2 = BPInfo.split(":")
+    BP1 = mix.split("_")[0]
+    chrom2 = "_".join(mix.split("_")[1:])
     BP1, BP2 = int(BP1), int(BP2)
     if chrom1 == chrom2:
         if BP1 <= BP2:
@@ -263,7 +274,10 @@ def RegionMaker(BPInfo):
 
 def SortBreakPoint(BPInfo, chromDict):
     # sort BreakPoint, output [chromA:LociA, chromB:LociB]
-    chrom1,BP1,chrom2,BP2 = re.split(r'[:_]', BPInfo)
+    # chrom1,BP1,chrom2,BP2 = re.split(r'[:_]', BPInfo)
+    chrom1, mix, BP2 = BPInfo.split(":")
+    BP1 = mix.split("_")[0]
+    chrom2 = "_".join(mix.split("_")[1:])
     BP1, BP2 = int(BP1), int(BP2)
     Point1, Point2 = BP1 + chromDict[chrom1], BP2 + chromDict[chrom2]
     if Point1 <=Point2:
@@ -370,6 +384,7 @@ def FetchAimRegion(read_aln, refstart,refend):
     # fetch span reads length within aim reference region
     chrom, start, end, read_id, map_q, cigarSTR = read_aln.reference_name, str(read_aln.reference_start), str(read_aln.reference_end), read_aln.qname, str(read_aln.mapq), read_aln.cigarstring
     strand = "-" if read_aln.is_reverse else "+"
+    cigarSTR = cigarSTR.replace("=", "M")
     uppercase_letters = np.array(re.findall(r'[A-Z]', cigarSTR))
     numbers = np.array([int(num) for num in re.findall(r'\d+', cigarSTR)])
     refGrowth = np.array(['D', 'P', 'N', 'M','X'])
@@ -410,7 +425,7 @@ def FetchAimRegion(read_aln, refstart,refend):
 # Version 7 update: Span Reads Df fetching. In order to simplify calculation process
 def FetchSpanReadDf(bedFile, chrom, start,end, cutoff=5):
     # Fetch span reads from bed.gz File
-    start,end = int(start), int(end) 
+    start,end = np.max([0,int(start)]), int(end) 
     # Version 8 update: Consider multiple file input
     DatPool = []
     for bedF in bedFile.split(","):
@@ -422,6 +437,7 @@ def FetchSpanReadDf(bedFile, chrom, start,end, cutoff=5):
                             ReadList.groupby(['readID'])['readend'].apply(lambda x: np.array(x))], axis=1)
         # Filter SpanReads 
         ReadDf_span = ReadDf.loc[(ReadDf['refstart'].apply(lambda x:np.min(x))<=start)&(ReadDf['refend'].apply(lambda x: np.max(x))>=end)]
+        ReadDf_span = ReadDf_span.copy()
         ReadDf_span['Length'] = ReadDf_span['readend'].apply(np.max) - ReadDf_span['readstart'].apply(np.min)
         DatPool.append(ReadDf_span)
     return(pd.concat(DatPool,axis=0))

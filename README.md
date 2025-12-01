@@ -1,5 +1,5 @@
-# SVscope
-Long-read-based somatic SV detector via full-length sequence model-based local graph-genome optimization
+# SVScope
+Resolving somatic SVs via full-length sequence model-based local graph-genome optimization 
 ## Introduction
 ### A somatic structural variation caller based on long-read technology
 The SVScope is a computational framework that leverages full-length sequence information and local graph genome optimization to accurately detect somatic SVs. The framework utilizes read alignment breakpoint information from the whole-genome scale to cluster and identify split-alignment somatic SVs and candidate inner-alignment somatic SVs. To mitigate the impact of alignment errors on inner-alignment somatic SV detection, SVScope re-analyzes the alignment relationships among all full-length sequences spanning the candidate somatic SV interval using a partial order alignment (sPOA) graph with multi-sequence alignment representation and accurately clusters reads with a sequence mixture model. To avoid read coordination errors affected by centromeres, telomeres, and segmental duplication sequences, SVScope also implements a random forest machine learning approach based on local alignment features to filter high-confidence somatic SV events. 
@@ -15,12 +15,29 @@ To get started with this software, follow these steps:
 
 ### Dependencies
 Ensure you have the following Python packages installed:
-- pysam version 0.19.1
+- python=3.8
+- pysam version 0.22.1
 - pyspoa version 0.2.1
+- pyabpoa >= 1.5.3
 - numpy version 1.21.5
 - scipy version 1.7.3
 - sklearn version 1.0.2
-- Levenshtein version 0.23.0
+- pandas
+- matplotlib
+- bedtools 
+- matplotlib
+- biopython
+- statsmodels
+- mafft
+
+We also made a dependency list in file environment.yml. Conda users can install all dependencies with conda command:
+```shell
+conda env create -f environment.yml
+```
+By default this command line will build up a new conda environment named Release-env. Once activated, all dependency will be ready for work:
+```shell
+conda activate SVScope-env
+```
 
 ### Installation Steps
 - Clone the repository:
@@ -34,30 +51,31 @@ Ensure you have the following Python packages installed:
 The SVScope algorithm consists of three main modules: the DataPrepare module initialize the detection process, generate candidate somatic SV intervals for further analysis, the local graph genome optimization module (`localGraph`), which optimizes the local graph genome, and the local graph confidence assessment module (`AlnFeature`), which evaluates the confidence of the local graph genome. We have designed the `callsomaticSV` module to link the above modules together to directly obtain the somatic SV calculation results in VCF format. The specific usage is as follows:
 ### command line
 ```bash
-python src/SVscope.py} DataPrepare \ 
--D ${RepeatWindow} \                               # low complexity and tandem repeat window annotated by RepeatMasker, by default: SVScope/doc/hg38.RepeatMasker.TD.Low.mainChr.sort.bed
--W <Genome interval window> \                      # genomic window for normalization by default 10kb window, by default: SVScope/doc/hg38_mainChr.10kb.window.bed
--T <CaseBam> \                                     # Path of Case sample long-read data alignment data in bam format, we recommand to use minimap2.22 for reads alignment.
--N <ControlBam> \                                  # Path of Control sample long-read data alignment data in bam format, we recommand to use minimap2.22 for reads alignment.
--t <CaseID> \                                      # Case SampleID 
--n <ControlID> \                                   # Control SampleID
--r <Reference sequence> \                          # reference file in fasta format 
--s <SaveDir> \                                     # path for result output
---selectwindows \                                  # If specified, TDScope will run windowselection process. Once saveData set True, this parameter should be specified first. Default: False
---FullProcess \                                    # If specified, run TDScope process after window selection
---cleanupDat \                                     # If set, clean up bed.gz and sqlite files for space, by default False
--p <Thread>                                        # Number of CPU used for calculation
+python src/SVScope.py DataPrepare \
+    -T <CaseBam> \                                     # Path of Case sample long-read data alignment data in bam format. Using "," to divide if there are more than on files like -T <bam1>,<bam2>. we recommand to use minimap2.22+ for reads alignment.
+    -N <ControlBam> \                                  # Path of Control sample long-read data alignment data in bam format. Using "," to divide if there are more than on files like -N <bam1>,<bam2>. we recommand to use minimap2.22+ for reads alignment.
+    -t <CaseID> \                                      # Case SampleID. Using "," to divide if there are more than on files like -t sample1,sample2. length of CaseID should be the same as CaseBam file.
+    -n <ControlID> \                                   # Control SampleID. Using "," to divide if there are more than on files like -t sample1,sample2. length of CaseID should be the same as ControlBam file.
+    -r <Reference sequence> \                          # reference file in fasta format. A index file in fai format is also required in the same path.
+    -s <SaveDir> \                                     # path for result output
+    -p <Thread>                                        # Number of CPU used for calculation
+    --selectwindows \                                  # if set, select candidate window first.
+    --FullProcess \                                    # run full SVScope pipeline from window selection -> split-alignment SV calling -> Local graph and read clustering -> somatic confidence checking process, --selectwindows parameter should be set first.
+    --cleanupDat \                                     # if set, remove tmp files of SVScope 
+    -M <MSA> \                                         # MSA algorithm use in local graph process, user can choose from 'spoa' for SIMD POA, abPOA for abPOA and mafft for mafft, by default abPOA.
+    --platform <LRS platform>                          # platform choose, now we support "ont" and "PacBio", by default "PacBio".
 
 python src/CheckInner-alignmentSVs.adjustVCF.py \
--s <SaveDir> \                                     # path for result output
+-s <SaveDir> \                                         # path for result output
 ```
 ### output
-- \<CaseID\>.vs.\<ControlID\>.Raw.bed             # Local genome component phasing result of TDScope in bed format, consist of 10 columns
-- \<CaseID\>_tumor.vcf                            # result of raw inner-alignment somatic SV calling including INS and DEL without randomforest selection.
-- \InterALNSVs.vcf                                # result of split-alignment somatic SV calling including BND, DUP and INV.
-- \<CaseID>_tumor.mergedSomatic.vcf               # result of all somatic SV calling with randomforest selection.
-- \<CaseID>_tumor.mergedSomatic.adjusted.vcf      # result of all somatic SV calling with randomforest selection, INS located within tandem repeat and low complexity regions are represented as regions annotated by Repeat Masker.
-
+```shell
+- <CaseID>.vs.<ControlID>.Raw.bed                      # Local genome component phasing result of TDScope in bed format, consist of 10 columns
+- <CaseID>.vcf                                         # result of raw inner-alignment somatic SV calling including INS and DEL without randomforest selection.
+- InterALNSVs.vcf                                      # result of split-alignment somatic SV calling including BND, DUP and INV.
+- <CaseID>.mergedSomatic.vcf                           # result of all somatic SV calling with randomforest selection.
+- <CaseID>.mergedSomatic.adjusted.vcf                  # result of all somatic SV calling with randomforest selection, INS located within tandem repeat and low complexity regions are represented as regions annotated by Repeat Masker.
+```
 
 #### \<CaseID\>.vs.\<ControlID\>.Raw.bed Description
 | Column | Name | Description |
@@ -73,3 +91,26 @@ python src/CheckInner-alignmentSVs.adjustVCF.py \
 | 9      | Number of germline component | Number of germline component |
 | 10     | label | Label of interval |
 
+### Options
+By default SVScope will use pre-defined low complexity and tandem repeat window annotated by RepeatMasker at SVScope/doc/hg38.RepeatMasker.TD.Low.mainChr.sort.bed;
+By default SVScope will use pre-defined background 10kb window at SVScope/doc/hg38_mainChr.10kb.window.bed for coverage normalization. 
+Both window lists mentioned above are made for human genome hg38. User can change window list with parameter -D for low complexity and tandem repeat window and -W for background window like:
+```bash
+python src/SVScope.py \
+-D <TANDEMREPEATFILE> \                                # low complexity and tandem repeat window annotated by RepeatMasker 
+-W <GENOMEWINDOW> \                                    # background 10kb window identified by bedtools makewindows 
+   DataPrepare \
+    -T <CaseBam> \                                     # Path of Case sample long-read data alignment data in bam format. Using "," to divide if there are more than on files like -T <bam1>,<bam2>. we recommand to use minimap2.22+ for reads alignment.
+    -N <ControlBam> \                                  # Path of Control sample long-read data alignment data in bam format. Using "," to divide if there are more than on files like -N <bam1>,<bam2>. we recommand to use minimap2.22 for reads alignment.
+    -t <CaseID> \                                      # Case SampleID. Using "," to divide if there are more than on files like -t sample1,sample2. length of CaseID should be the same as CaseBam file.
+    -n <ControlID> \                                   # Control SampleID. Using "," to divide if there are more than on files like -t sample1,sample2. length of CaseID should be the same as ControlBam file.
+    -r <Reference sequence> \                          # reference file in fasta format. A index file in fai format is also required in the same path.
+    -s <SaveDir> \                                     # path for result output
+    -p <Thread>                                        # Number of CPU used for calculation
+    --selectwindows \                                  # if set, select candidate window first.
+    --FullProcess \                                    # run full SVScope pipeline from window selection -> split-alignment SV calling -> Local graph and read clustering -> somatic confidence checking process, --selectwindows parameter should be set first.
+    --cleanupDat \                                     # if set, remove tmp files of SVScope 
+    -M <MSA> \                                         # MSA algorithm use in local graph process, user can choose from 'spoa' for SIMD POA, abPOA for abPOA and mafft for mafft, by default abPOA.
+    --platform <LRS platform>                          # platform choose, now we support "ont" and "PacBio", by default "PacBio".
+
+```

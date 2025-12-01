@@ -16,7 +16,7 @@ def parse_fasta(fai):
 
 def generate_vcfheader(chromosomes,out_vcf,fasta):
     Info ='''##INFO=<ID=SVTYPE,Number=1,Type=String,Description="Type of structural variant">\n##INFO=<ID=SVLEN,Number=1,Type=Integer,Description="Length of the SV">\n##INFO=<ID=END,Number=1,Type=Integer,Description="End position of the SV">\n##INFO=<ID=SUPPORT,Number=1,Type=Integer,Description="Number of reads supporting the structural variation">\n##INFO=<ID=RNAMES,Number=.,Type=String,Description="Names of supporting reads">\n##INFO=<ID=AF,Number=1,Type=Float,Description="Allele Frequency">\n'''
-    Tools = '''##fileformat=VCFv4.2\n##source=TDscope.1.0\n##FILTER=<ID=PASS,Description="All filters passed">\n'''
+    Tools = '''##fileformat=VCFv4.2\n##source=SVScope.1.0\n##FILTER=<ID=PASS,Description="All filters passed">\n'''
     with open(out_vcf,'w') as vcf:
         ### Tools 
         vcf.write(Tools)
@@ -65,7 +65,7 @@ def bed2vcf(input_bed1, input_bed2, input_bed3, out_vcf,TumorID, reference):
                     SVType = 'INS'
             elif SVLen <= -50:
                 SVType ='DEL'
-            SVID = 'TDscope.'+SVType+'.'+window
+            SVID = 'SVscope.'+SVType+'.'+window
             Ref = germlinSeq
             QUAL = '.'
             FILTER = 'PASS'
