@@ -25,7 +25,6 @@ Ensure you have the following Python packages installed:
 - pandas
 - matplotlib
 - bedtools 
-- matplotlib
 - biopython
 - statsmodels
 - mafft
