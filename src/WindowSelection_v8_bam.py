@@ -23,7 +23,7 @@ bedtools bamtobed -i <aim bamFile> -cigar | sort -k1,1 -k2,2n | bgzip > <bedFile
 - Add Large duplication and Delation result to InterALNSVs.vcf
 - Adjust the overlap of large del and inner alignment del with bedtools intersect -f 0.5 -r parameters
 - Adjust the overlap of large dup and inner alignment ins with bedtools intersect -f 0.5 -r parameters to avoid unlimited merge of candidate window 
-- Final output should be InterALNSVs.vcf + CandidateSpan.tumor.merged.decision.somatic.bed, the later should go through TDScope process for further analysis.
+- Final output should be InterALNSVs.vcf + CandidateSpan.tumor.merged.decision.somatic.bed, the later should go through SVScope process for further analysis.
 
 '''
 import os,re 
@@ -549,7 +549,7 @@ def FindCandidateSVWindow(bedFileTumor, bedFileNormal, faiFile,
         )&(
         Candidate_CLIP_Others_Result['SpanReadsN'].apply(len) >=3
         )]
-    # Bad span reads regions lower than threshold above, TDScope process can never get the somatic SV decision in this status 
+    # Bad span reads regions lower than threshold above, SVScope process can never get the somatic SV decision in this status 
     Candidate_CLIP_Others_Result_BadSpan = Candidate_CLIP_Others_Result.loc[np.setdiff1d(Candidate_CLIP_Others_Result.index, Candidate_CLIP_Others_Result_GoodSpan.index)]
     if Candidate_CLIP_Others_Result_GoodSpan.loc[Candidate_CLIP_Others_Result_GoodSpan['BPType']=='DEL'].shape[0] > 0:
         Candidate_CLIP_Others_Result_GoodSpan.loc[Candidate_CLIP_Others_Result_GoodSpan['BPType']=='DEL', ['chrom', 'start', 'end', 'BPType', 'readID']].to_csv('%s/CandidateLargeDEL.tumor.merged.bed' % savedir, sep="\t", header=None, index=False)
@@ -692,7 +692,7 @@ def generate_vcfheaderINVTRA(faiFile,out_vcf,fasta):
             chrom,length = records.strip().split("\t")[0:2]
             chromosomes[chrom] = int(length)
     Info ='''##INFO=<ID=SVTYPE,Number=1,Type=String,Description="Type of structural variant">\n##INFO=<ID=SVLEN,Number=1,Type=Integer,Description="Length of the SV">\n##INFO=<ID=END,Number=1,Type=Integer,Description="End position of the SV">\n##INFO=<ID=SUPPORT,Number=1,Type=Integer,Description="Number of reads supporting the structural variation">\n##INFO=<ID=RNAMES,Number=.,Type=String,Description="Names of supporting reads">\n##INFO=<ID=AF,Number=1,Type=Float,Description="Allele Frequency">\n'''
-    Tools = '''##fileformat=VCFv4.2\n##source=TDscope.1.0\n##FILTER=<ID=PASS,Description="All filters passed">\n'''
+    Tools = '''##fileformat=VCFv4.2\n##source=SVScope.1.0\n##FILTER=<ID=PASS,Description="All filters passed">\n'''
     with open(out_vcf,'w') as vcf:
         ### Tools 
         vcf.write(Tools)
@@ -739,11 +739,11 @@ def main(args):
                 ReadNum = str(len(ReadName.split(",")))
                 # Version 7 update: inter alignment SV should have > 4 support reads to avoid false positive 
                 if int(ReadNum) > 4:
-                    vcf.write(BP1.split(":")[0] + "\t" + BP1.split(":")[1] + "\tTDScope.BND.%s-%s_1\t" % (BP1, BP2) +
-                            "N\tN]%s]\t.\tPASS\tSVLEN=-1;SVTYPE=BND;MATE_ID=TDScope.BND.%s-%s_2;SUPPORT=%s;RNAMES=%s\tGT\t0/1\n" % 
+                    vcf.write(BP1.split(":")[0] + "\t" + BP1.split(":")[1] + "\tSVScope.BND.%s-%s_1\t" % (BP1, BP2) +
+                            "N\tN]%s]\t.\tPASS\tSVLEN=-1;SVTYPE=BND;MATE_ID=SVScope.BND.%s-%s_2;SUPPORT=%s;RNAMES=%s\tGT\t0/1\n" % 
                             (BP2, BP1, BP2, ReadNum, ReadName))
-                    vcf.write(BP2.split(":")[0] + "\t" + BP2.split(":")[1] + "\tTDScope.BND.%s-%s_2\t" % (BP1, BP2) +
-                            "N\tN]%s]\t.\tPASS\tSVLEN=-1;SVTYPE=BND;MATE_ID=TDScope.BND.%s-%s_1;SUPPORT=%s;RNAMES=%s\tGT\t0/1\n" % 
+                    vcf.write(BP2.split(":")[0] + "\t" + BP2.split(":")[1] + "\tSVScope.BND.%s-%s_2\t" % (BP1, BP2) +
+                            "N\tN]%s]\t.\tPASS\tSVLEN=-1;SVTYPE=BND;MATE_ID=SVScope.BND.%s-%s_1;SUPPORT=%s;RNAMES=%s\tGT\t0/1\n" % 
                             (BP1, BP1, BP2, ReadNum, ReadName))
                     vcf.flush()
     # Check INV
@@ -762,7 +762,7 @@ def main(args):
                 ReadNum = str(len(ReadName.split(",")))
                 # Version 7 update: inter alignment SV should have > 4 support reads to avoid false positive 
                 if int(ReadNum) > 4:
-                    vcf.write(BP1.split(":")[0] + "\t" + BP1.split(":")[1] + "\tTDScope.INV.%s-%s\t" % (BP1, BP2) + "N\t<INV>\t.\tPASS\tSVLEN=%s;SVTYPE=INV;END=%s;SUPPORT=%s;RNAMES=%s\tGT\t0/1\n" % (SVLen, BP2.split(":")[-1], ReadNum, ReadName))
+                    vcf.write(BP1.split(":")[0] + "\t" + BP1.split(":")[1] + "\tSVScope.INV.%s-%s\t" % (BP1, BP2) + "N\t<INV>\t.\tPASS\tSVLEN=%s;SVTYPE=INV;END=%s;SUPPORT=%s;RNAMES=%s\tGT\t0/1\n" % (SVLen, BP2.split(":")[-1], ReadNum, ReadName))
                     vcf.flush()
     # Check Large DUP / DEL 
     if os.path.exists(DEL):
@@ -780,7 +780,7 @@ def main(args):
                 ReadNum = str(len(ReadName.split(",")))
                 # Version 7 update: inter alignment SV should have > 4 support reads to avoid false positive 
                 if int(ReadNum) > 4:
-                    vcf.write(BP1.split(":")[0] + "\t" + BP1.split(":")[1] + "\tTDScope.DEL.%s-%s\t" % (BP1, BP2) + "N\t<LargeDEL>\t.\tPASS\tSVLEN=-%s;SVTYPE=LargeDEL;END=%s;SUPPORT=%s;RNAMES=%s\tGT\t0/1\n" % (SVLen, BP2.split(":")[-1], ReadNum, ReadName))
+                    vcf.write(BP1.split(":")[0] + "\t" + BP1.split(":")[1] + "\tSVScope.DEL.%s-%s\t" % (BP1, BP2) + "N\t<LargeDEL>\t.\tPASS\tSVLEN=-%s;SVTYPE=LargeDEL;END=%s;SUPPORT=%s;RNAMES=%s\tGT\t0/1\n" % (SVLen, BP2.split(":")[-1], ReadNum, ReadName))
                     vcf.flush()
     if os.path.exists(DUP):
         DUPDf = pd.read_csv('%s' % DUP, sep="\t")
@@ -797,7 +797,7 @@ def main(args):
                 ReadNum = str(len(ReadName.split(",")))
                 # Version 7 update: inter alignment SV should have > 4 support reads to avoid false positive 
                 if int(ReadNum) > 4:
-                    vcf.write(BP1.split(":")[0] + "\t" + BP1.split(":")[1] + "\tTDScope.DUP.%s-%s\t" % (BP1, BP2) + "N\t<LargeDUP>\t.\tPASS\tSVLEN=-%s;SVTYPE=LargeDUP;END=%s;SUPPORT=%s;RNAMES=%s\tGT\t0/1\n" % (SVLen, BP2.split(":")[-1], ReadNum, ReadName))
+                    vcf.write(BP1.split(":")[0] + "\t" + BP1.split(":")[1] + "\tSVScope.DUP.%s-%s\t" % (BP1, BP2) + "N\t<LargeDUP>\t.\tPASS\tSVLEN=-%s;SVTYPE=LargeDUP;END=%s;SUPPORT=%s;RNAMES=%s\tGT\t0/1\n" % (SVLen, BP2.split(":")[-1], ReadNum, ReadName))
                     vcf.flush()
         vcf.close()
     return(spanSV)

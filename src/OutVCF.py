@@ -61,9 +61,9 @@ def bed2vcf(input_bed1, input_bed2, input_bed3, out_vcf,TumorID, reference):
             yprob = df_model.loc[i, 'yprob']
             yhat = df_model.loc[i, 'y_hat']
             SVType = 'MisAlign'
-            if SVLen >= 50:
+            if SVLen > 0:
                     SVType = 'INS'
-            elif SVLen <= -50:
+            elif SVLen < 0:
                 SVType ='DEL'
             SVID = 'SVscope.'+SVType+'.'+window
             Ref = germlinSeq

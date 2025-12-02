@@ -29,7 +29,7 @@ Ensure you have the following Python packages installed:
 - statsmodels
 - mafft
 
-We also made a dependency list in file environment.yml. Conda users can install all dependencies with conda command:
+Conda users can install all dependencies with conda command:
 ```shell
 conda env create -f environment.yml
 ```
@@ -64,8 +64,6 @@ python src/SVScope.py DataPrepare \
     -M <MSA> \                                         # MSA algorithm use in local graph process, user can choose from 'spoa' for SIMD POA, abPOA for abPOA and mafft for mafft, by default abPOA.
     --platform <LRS platform>                          # platform choose, now we support "ont" and "PacBio", by default "PacBio".
 
-python src/CheckInner-alignmentSVs.adjustVCF.py \
--s <SaveDir> \                                         # path for result output
 ```
 ### output
 ```shell
@@ -73,7 +71,6 @@ python src/CheckInner-alignmentSVs.adjustVCF.py \
 - <CaseID>.vcf                                         # result of raw inner-alignment somatic SV calling including INS and DEL without randomforest selection.
 - InterALNSVs.vcf                                      # result of split-alignment somatic SV calling including BND, DUP and INV.
 - <CaseID>.mergedSomatic.vcf                           # result of all somatic SV calling with randomforest selection.
-- <CaseID>.mergedSomatic.adjusted.vcf                  # result of all somatic SV calling with randomforest selection, INS located within tandem repeat and low complexity regions are represented as regions annotated by Repeat Masker.
 ```
 
 #### \<CaseID\>.vs.\<ControlID\>.Raw.bed Description
@@ -90,7 +87,7 @@ python src/CheckInner-alignmentSVs.adjustVCF.py \
 | 9      | Number of germline component | Number of germline component |
 | 10     | label | Label of interval |
 
-### Options
+### Option1: Change tandem repeat and Low complex window 
 By default SVScope will use pre-defined low complexity and tandem repeat window annotated by RepeatMasker at SVScope/doc/hg38.RepeatMasker.TD.Low.mainChr.sort.bed;
 By default SVScope will use pre-defined background 10kb window at SVScope/doc/hg38_mainChr.10kb.window.bed for coverage normalization. 
 Both window lists mentioned above are made for human genome hg38. User can change window list with parameter -D for low complexity and tandem repeat window and -W for background window like:
@@ -112,4 +109,23 @@ python src/SVScope.py \
     -M <MSA> \                                         # MSA algorithm use in local graph process, user can choose from 'spoa' for SIMD POA, abPOA for abPOA and mafft for mafft, by default abPOA.
     --platform <LRS platform>                          # platform choose, now we support "ont" and "PacBio", by default "PacBio".
 
+```
+### Option2: Interval Correction for Low Complexity and Tandem Repeat Regions
+- Rationale: 
+During our analysis, we observed that for somatic Insertions (INS) occurring within Low Complexity (LC) or Tandem Repeat (TR) regions, a single breakpoint coordinate (or even a median position) often fails to fully represent the genomic alteration due to alignment ambiguities and local sequence repetition.
+We propose that the entire LC or TR genomic interval serves as a more robust and biologically meaningful representation for these specific somatic events.
+
+- Script Function: 
+To facilitate this representation for downstream analysis, we provide a correction tool: CheckInner-alignmentSVs.adjustVCF.py. This script performs a post-hoc analysis on the SVScope VCF output. It checks if a detected somatic INS falls within a targeted LC or TR region. If such an overlap is confirmed, the script merges the specific INS breakpoint record with the corresponding full LC/TR genomic interval, converting the call into a region-based format.
+
+- Usage: 
+```shell
+# Optional: Convert specific INS breakpoints to full LC/TR intervals
+python src/CheckInner-alignmentSVs.adjustVCF.py \
+    -s <SaveDir>   # Path to the directory containing SVScope results
+```
+> Note: This step is optional and designed for users who prefer interval-based annotations for repetitive regions. The performance benchmarks in the SVScope manuscript were calculated based on the precise breakpoints output by the main pipeline.
+#### Output:
+```shell
+- <CaseID>.mergedSomatic.adjusted.vcf                  # result of all somatic SV calling with randomforest selection, INS located within tandem repeat and low complexity regions are represented as regions annotated by Repeat Masker.
 ```

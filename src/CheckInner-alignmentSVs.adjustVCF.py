@@ -97,7 +97,7 @@ def VcfWindowLoading(savedir, excludechrom='chrM'):
                             WritedUUID.append(UUID)
                     else:
                         WindowRecord.append(record)
-    vcf_adj = '{savedir}/{sampleID}_tumor.mergedSomatic.adjusted.vcf'.format(savedir=savedir, sampleID=os.path.basename(savedir))
+    vcf_adj = '{savedir}/{head}.mergedSomatic.adjusted.vcf'.format(savedir=savedir, head=os.path.basename(vcfFile).split(".mergedSomatic")[0])
     with open(vcf_adj, 'w') as output:
         for R in Header+WindowRecord:
             output.write(R)
