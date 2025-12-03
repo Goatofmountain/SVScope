@@ -79,13 +79,13 @@ python src/SVScope.py DataPrepare \
 | 1      | Chromosome | Chromosome name |
 | 2      | Start | Start position of the region |
 | 3      | End | End position of the region |
-| 4      | somatic Sequence | sequence of somatic genome, split by ";" if more than 1 components |
-| 5      | support reads for somatic component | ID of reads supporting somatic genome components, split by ";" if more than 1 components |
+| 4      | Somatic sequence | Sequence of somatic genome, split by ";" if more than 1 components |
+| 5      | Support reads for somatic component | ID of reads supporting somatic genome components, split by ";" if more than 1 component |
 | 6      | Number of somatic component | Number of somatic component |
-| 7      | germline Sequence | sequence of germline genome, split by ";" if more than 1 components |
-| 8      | support reads for germline component | ID of reads supporting germline genome components, split by ";" if more than 1 components |
+| 7      | Germline sequence | Sequence of germline genome, split by ";" if more than 1 components |
+| 8      | Support reads for germline component | ID of reads supporting germline genome components, split by ";" if more than 1 component |
 | 9      | Number of germline component | Number of germline component |
-| 10     | label | Label of interval |
+| 10     | Label | Label of interval |
 
 ### Option1: Change tandem repeat and Low complex window 
 By default SVScope will use pre-defined low complexity and tandem repeat window annotated by RepeatMasker at SVScope/doc/hg38.RepeatMasker.TD.Low.mainChr.sort.bed;
