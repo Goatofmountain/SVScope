@@ -1,0 +1,1 @@
+python ../src/SVscope.py DataPrepare -T {tumorBam} -N {controlBam} -t {tumorSampleid} -n {controlSampleid} -r {refence.fa} -s {saveDir} -p {threads number} --selectwindows --FullProcess --cleanupDat --platform {ont/Pacbio}
