@@ -1,0 +1,3 @@
+sniffles --input {tumorBam} --snf {tumor.snf} -t 64 --minsupport 3 --mapq 10 --min-alignment-length 1000 --output-rnames --allow-overwrite --long-ins-length 100000 --reference {reference}  
+sniffles --input {controlBam} --snf {control.snf} -t 64 --minsupport 3 --mapq 10 --min-alignment-length 1000 --output-rnames --allow-overwrite --long-ins-length 100000 --reference {reference} 
+sniffles --input {tumor.snf} {control.snf} --vcf {somatic_and_normal_sv.vcf} -t 64 --minsupport 3 --mapq 10 --min-alignment-length 1000 --output-rnames --allow-overwrite --long-ins-length 100000 --reference {reference}
