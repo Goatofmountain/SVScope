@@ -47,7 +47,7 @@ conda activate SVScope-env
    ```
 
 ## Usage
-The SVScope algorithm consists of three main modules: the DataPrepare module initialize the detection process, generate candidate somatic SV intervals for further analysis, the local graph genome optimization module (`localGraph`), which optimizes the local graph genome, and the local graph confidence assessment module (`AlnFeature`), which evaluates the confidence of the local graph genome. We have designed the `callsomaticSV` module to link the above modules together to directly obtain the somatic SV calculation results in VCF format. The specific usage is as follows:
+The SVScope algorithm consists of three main modules: the DataPrepare module initializes the detection process, generates candidate somatic SV intervals for further analysis, the local graph genome optimization module (`localGraph`), which optimizes the local graph genome, and the local graph confidence assessment module (`AlnFeature`), which evaluates the confidence of the local graph genome. We have designed the `callsomaticSV` module to link the above modules together to directly obtain the somatic SV calculation results in VCF format. The specific usage is as follows:
 ### command line
 ```bash
 python src/SVScope.py DataPrepare \
@@ -88,25 +88,25 @@ python src/SVScope.py DataPrepare \
 | 10     | Label | Label of interval |
 
 ### Option1: Change tandem repeat and low complex window 
-By default, SVScope will use pre-defined low complexity and tandem repeat window annotated by RepeatMasker at SVScope/doc/hg38.RepeatMasker.TD.Low.mainChr.sort.bed;
-By default, SVScope will use pre-defined background 10kb window at SVScope/doc/hg38_mainChr.10kb.window.bed for coverage normalization. 
-Both window lists mentioned above are made for the human genome hg38. User can change window list with parameter -D for low complexity and tandem repeat window and -W for background window like:
+By default, SVScope will use pre-defined low complexity and tandem repeat windows annotated by RepeatMasker at SVScope/doc/hg38.RepeatMasker.TD.Low.mainChr.sort.bed;
+By default, SVScope will use a pre-defined background 10kb window at SVScope/doc/hg38_mainChr.10kb.window.bed for coverage normalization. 
+Both window lists mentioned above are made for the human genome hg38. User can change the window list with parameter -D for low complexity and tandem repeat window and -W for background window like:
 ```bash
 python src/SVScope.py \
--D <TANDEMREPEATFILE> \                                # low complexity and tandem repeat window annotated by RepeatMasker 
--W <GENOMEWINDOW> \                                    # background 10kb window identified by bedtools makewindows 
+-D <TANDEMREPEATFILE> \                                # Low complexity and tandem repeat window annotated by RepeatMasker 
+-W <GENOMEWINDOW> \                                    # Background 10kb window identified by bedtools makewindows 
    DataPrepare \
     -T <CaseBam> \                                     # Path of Case sample long-read data alignment data in bam format. Using "," to divide if there are multiple files, like -T <bam1>,<bam2>. We recommend using minimap2.22+ for reads alignment.
     -N <ControlBam> \                                  # Path of Control sample long-read data alignment data in bam format. Using "," to divide if there are multiple files, like -N <bam1>,<bam2>. We recommend using minimap2.22 for reads alignment.
     -t <CaseID> \                                      # Case SampleID. Using "," to divide if there are multiple files, like -t sample1,sample2. The length of CaseID should be the same as the CaseBam file.
     -n <ControlID> \                                   # Control SampleID. Using "," to divide if there are multiple files, like -t sample1,sample2. The length of the CaseID should be the same as the ControlBam file.
-    -r <Reference sequence> \                          # Reference file in fasta format. A index file in fai format is also required in the same path.
+    -r <Reference sequence> \                          # Reference file in fasta format. An index file in fai format is also required in the same path.
     -s <SaveDir> \                                     # Path for result output
     -p <Thread>                                        # Number of CPU used for calculation
-    --selectwindows \                                  # If set, select candidate window first.
+    --selectwindows \                                  # If set, select the candidate window first.
     --FullProcess \                                    # Run full SVScope pipeline from window selection -> split-alignment SV calling -> Local graph and read clustering -> somatic confidence checking process, --selectwindows parameter should be set first.
     --cleanupDat \                                     # If set, remove tmp files of SVScope 
-    -M <MSA> \                                         # MSA algorithm use in local graph process, user can choose from 'spoa' for SIMD POA, abPOA for abPOA and mafft for mafft, by default abPOA.
+    -M <MSA> \                                         # MSA algorithm used in local graph process, user can choose from 'spoa' for SIMD POA, abPOA for abPOA and mafft for mafft, by default abPOA.
     --platform <LRS platform>                          # Platform choose, now we support "ont" and "PacBio", by default "PacBio".
 
 ```
