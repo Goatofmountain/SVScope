@@ -524,99 +524,103 @@ def FindCandidateSVWindow(bedFileTumor, bedFileNormal, faiFile,
     # Treat the potential Dup / DEL type SV 
     resDf_CLIP_Others = pd.concat([resDf_CLIP_Others_tumor, resDf_CLIP_Others_normal])
     Candidate_CLIP_Others = DecisionWithDBSCAN(resDf_CLIP_Others)
-    # # Label DUP and DEL 
-    # Candidate_CLIP_Others['SVType'] = Candidate_CLIP_Others['BPsite'].apply(lambda x: "DEL" if int(x.split("_")[0].split(":")[-1]) < int(x.split("_")[-1].split(":")[-1]) else "DUP")
-    # Filter should have at least 3 support reads and same SVType 
-    Candidate_CLIP_Others_Stat = pd.concat([Candidate_CLIP_Others.groupby(['labels'])['BPType'].apply(lambda x: np.unique(x)),
-                                            Candidate_CLIP_Others.groupby(['labels'])['readID'].apply(lambda x: np.unique(x))], axis=1).reset_index()
-    SelectGroups = list(Candidate_CLIP_Others_Stat.loc[(Candidate_CLIP_Others_Stat['BPType'].apply(len)==1)&(Candidate_CLIP_Others_Stat['readID'].apply(len)>=3), 'labels'])
-    Candidate_CLIP_Others_filter = Candidate_CLIP_Others.loc[Candidate_CLIP_Others['labels'].isin(SelectGroups)]
-    Candidate_CLIP_Others_filter['SortedBPList'] = Candidate_CLIP_Others_filter['BPsite'].apply(lambda x: SortBreakPoint(x, chromDict))
-    Candidate_CLIP_Others_Result = pd.concat([Candidate_CLIP_Others_filter.groupby(['labels'])['SortedBPList'].apply(lambda x: [a.split(":")[0] for a in np.vstack(x)[:,0]][0]), 
-                                                Candidate_CLIP_Others_filter.groupby(['labels'])['SortedBPList'].apply(lambda x: np.min([int(a.split(":")[-1]) for a in np.vstack(x)[:,0]])),
-                                                Candidate_CLIP_Others_filter.groupby(['labels'])['SortedBPList'].apply(lambda x: np.min([int(a.split(":")[-1]) for a in np.vstack(x)[:,1]])), 
-                                                Candidate_CLIP_Others_filter.groupby(['labels'])['BPType'].apply(lambda x: list(x)[0]), 
-                                                Candidate_CLIP_Others_filter.groupby(['labels'])['readID'].apply(lambda x: ",".join(list(np.unique(x))))], axis=1)
-    Candidate_CLIP_Others_Result.columns = ['chrom', 'start', 'end', 'BPType','readID']   # somatic SVs decided by DBSCAN and break points
-    # Treat DEL type SV first 
-    ## For Large Scale DEL output into decision bed file 
-    # Version 7 update: Consider spanReads number in normal and tumor reads 
-    Candidate_CLIP_Others_Result['SpanReadsT'] = Candidate_CLIP_Others_Result.apply(lambda x: FetchSpanReadDf(bedFileTumor, x['chrom'], x['start']-50, x['end']+50).index, axis=1)
-    Candidate_CLIP_Others_Result['SpanReadsN'] = Candidate_CLIP_Others_Result.apply(lambda x: FetchSpanReadDf(bedFileNormal, x['chrom'], x['start']-50, x['end']+50).index, axis=1)
-    # For intersection: regions with Support reads overlap at least 3 span reads, normal and tumor should at least 3 span reads 
-    Candidate_CLIP_Others_Result_GoodSpan = Candidate_CLIP_Others_Result.loc[(
-        Candidate_CLIP_Others_Result.apply(lambda x: np.intersect1d(x['readID'].split(","), x['SpanReadsT']).shape[0], axis=1)>=3
-        )&(
-        Candidate_CLIP_Others_Result['SpanReadsN'].apply(len) >=3
-        )]
-    # Bad span reads regions lower than threshold above, SVScope process can never get the somatic SV decision in this status 
-    Candidate_CLIP_Others_Result_BadSpan = Candidate_CLIP_Others_Result.loc[np.setdiff1d(Candidate_CLIP_Others_Result.index, Candidate_CLIP_Others_Result_GoodSpan.index)]
-    if Candidate_CLIP_Others_Result_GoodSpan.loc[Candidate_CLIP_Others_Result_GoodSpan['BPType']=='DEL'].shape[0] > 0:
-        Candidate_CLIP_Others_Result_GoodSpan.loc[Candidate_CLIP_Others_Result_GoodSpan['BPType']=='DEL', ['chrom', 'start', 'end', 'BPType', 'readID']].to_csv('%s/CandidateLargeDEL.tumor.merged.bed' % savedir, sep="\t", header=None, index=False)
-        os.system('sort -k1,1 -k2,2n %s/CandidateLargeDEL.tumor.merged.bed -o %s/CandidateLargeDEL.tumor.merged.bed' % (savedir, savedir))
-        os.system('bedtools intersect -a %s/CandidateLargeDEL.tumor.merged.bed -b %s/CandidateDEL.tumor.merged.bed -wa -v -f 0.5 -r > %s/CandidateLargeDEL.tumor.merged.decision.bed' % (savedir, savedir, savedir))
-        os.system('bedtools intersect -a %s/CandidateLargeDEL.tumor.merged.bed -b %s/CandidateDEL.tumor.merged.bed -wa -wb -f 0.5 -r > %s/CandidateLargeDEL.vs.CandidateDEL.intersect.bed' % (savedir, savedir, savedir))
-        # check file row number 
-        if Filerow("%s/CandidateLargeDEL.tumor.merged.decision.bed" % savedir):
-            dfDEL_large = pd.concat([pd.read_csv("%s/CandidateLargeDEL.tumor.merged.decision.bed" % savedir, sep="\t",header=None, names=['chrom', 'start', 'end', 'BPType', 'readID']),
-                                    Candidate_CLIP_Others_Result_BadSpan.loc[Candidate_CLIP_Others_Result_BadSpan['BPType']=='DEL', ['chrom', 'start', 'end', 'BPType', 'readID']]], axis=0)
+    if Candidate_CLIP_Others.shape[0] > 0:
+        # # Label DUP and DEL 
+        # Candidate_CLIP_Others['SVType'] = Candidate_CLIP_Others['BPsite'].apply(lambda x: "DEL" if int(x.split("_")[0].split(":")[-1]) < int(x.split("_")[-1].split(":")[-1]) else "DUP")
+        # Filter should have at least 3 support reads and same SVType 
+        Candidate_CLIP_Others_Stat = pd.concat([Candidate_CLIP_Others.groupby(['labels'])['BPType'].apply(lambda x: np.unique(x)),
+                                                Candidate_CLIP_Others.groupby(['labels'])['readID'].apply(lambda x: np.unique(x))], axis=1).reset_index()
+        SelectGroups = list(Candidate_CLIP_Others_Stat.loc[(Candidate_CLIP_Others_Stat['BPType'].apply(len)==1)&(Candidate_CLIP_Others_Stat['readID'].apply(len)>=3), 'labels'])
+        Candidate_CLIP_Others_filter = Candidate_CLIP_Others.loc[Candidate_CLIP_Others['labels'].isin(SelectGroups)]
+        Candidate_CLIP_Others_filter['SortedBPList'] = Candidate_CLIP_Others_filter['BPsite'].apply(lambda x: SortBreakPoint(x, chromDict))
+        Candidate_CLIP_Others_Result = pd.concat([Candidate_CLIP_Others_filter.groupby(['labels'])['SortedBPList'].apply(lambda x: [a.split(":")[0] for a in np.vstack(x)[:,0]][0]), 
+                                                    Candidate_CLIP_Others_filter.groupby(['labels'])['SortedBPList'].apply(lambda x: np.min([int(a.split(":")[-1]) for a in np.vstack(x)[:,0]])),
+                                                    Candidate_CLIP_Others_filter.groupby(['labels'])['SortedBPList'].apply(lambda x: np.min([int(a.split(":")[-1]) for a in np.vstack(x)[:,1]])), 
+                                                    Candidate_CLIP_Others_filter.groupby(['labels'])['BPType'].apply(lambda x: list(x)[0]), 
+                                                    Candidate_CLIP_Others_filter.groupby(['labels'])['readID'].apply(lambda x: ",".join(list(np.unique(x))))], axis=1)
+        Candidate_CLIP_Others_Result.columns = ['chrom', 'start', 'end', 'BPType','readID']   # somatic SVs decided by DBSCAN and break points
+        # Treat DEL type SV first 
+        ## For Large Scale DEL output into decision bed file 
+        # Version 7 update: Consider spanReads number in normal and tumor reads 
+        Candidate_CLIP_Others_Result['SpanReadsT'] = Candidate_CLIP_Others_Result.apply(lambda x: FetchSpanReadDf(bedFileTumor, x['chrom'], x['start']-50, x['end']+50).index, axis=1)
+        Candidate_CLIP_Others_Result['SpanReadsN'] = Candidate_CLIP_Others_Result.apply(lambda x: FetchSpanReadDf(bedFileNormal, x['chrom'], x['start']-50, x['end']+50).index, axis=1)
+        # For intersection: regions with Support reads overlap at least 3 span reads, normal and tumor should at least 3 span reads 
+        Candidate_CLIP_Others_Result_GoodSpan = Candidate_CLIP_Others_Result.loc[(
+            Candidate_CLIP_Others_Result.apply(lambda x: np.intersect1d(x['readID'].split(","), x['SpanReadsT']).shape[0], axis=1)>=3
+            )&(
+            Candidate_CLIP_Others_Result['SpanReadsN'].apply(len) >=3
+            )]
+        # Bad span reads regions lower than threshold above, SVScope process can never get the somatic SV decision in this status 
+        Candidate_CLIP_Others_Result_BadSpan = Candidate_CLIP_Others_Result.loc[np.setdiff1d(Candidate_CLIP_Others_Result.index, Candidate_CLIP_Others_Result_GoodSpan.index)]
+        if Candidate_CLIP_Others_Result_GoodSpan.loc[Candidate_CLIP_Others_Result_GoodSpan['BPType']=='DEL'].shape[0] > 0:
+            Candidate_CLIP_Others_Result_GoodSpan.loc[Candidate_CLIP_Others_Result_GoodSpan['BPType']=='DEL', ['chrom', 'start', 'end', 'BPType', 'readID']].to_csv('%s/CandidateLargeDEL.tumor.merged.bed' % savedir, sep="\t", header=None, index=False)
+            os.system('sort -k1,1 -k2,2n %s/CandidateLargeDEL.tumor.merged.bed -o %s/CandidateLargeDEL.tumor.merged.bed' % (savedir, savedir))
+            os.system('bedtools intersect -a %s/CandidateLargeDEL.tumor.merged.bed -b %s/CandidateDEL.tumor.merged.bed -wa -v -f 0.5 -r > %s/CandidateLargeDEL.tumor.merged.decision.bed' % (savedir, savedir, savedir))
+            os.system('bedtools intersect -a %s/CandidateLargeDEL.tumor.merged.bed -b %s/CandidateDEL.tumor.merged.bed -wa -wb -f 0.5 -r > %s/CandidateLargeDEL.vs.CandidateDEL.intersect.bed' % (savedir, savedir, savedir))
+            # check file row number 
+            if Filerow("%s/CandidateLargeDEL.tumor.merged.decision.bed" % savedir):
+                dfDEL_large = pd.concat([pd.read_csv("%s/CandidateLargeDEL.tumor.merged.decision.bed" % savedir, sep="\t",header=None, names=['chrom', 'start', 'end', 'BPType', 'readID']),
+                                        Candidate_CLIP_Others_Result_BadSpan.loc[Candidate_CLIP_Others_Result_BadSpan['BPType']=='DEL', ['chrom', 'start', 'end', 'BPType', 'readID']]], axis=0)
+            else:
+                dfDEL_large = Candidate_CLIP_Others_Result_BadSpan.loc[Candidate_CLIP_Others_Result_BadSpan['BPType']=='DEL', ['chrom', 'start', 'end', 'BPType', 'readID']]
+            # For intersect DEL get new SVborder, prepare for further reads gain loss test 
+            if Filerow("%s/CandidateLargeDEL.vs.CandidateDEL.intersect.bed" % savedir):
+                dfDEL = pd.read_csv("%s/CandidateLargeDEL.vs.CandidateDEL.intersect.bed" % savedir, sep="\t",header=None)
+                dfDEL['start'] = dfDEL.apply(lambda x:x[1] if x[1]<=x[6] else x[6], axis=1)
+                dfDEL['end'] = dfDEL.apply(lambda x:x[2] if x[1]>=x[7] else x[7], axis=1)
+                dfDEL['supportReads'] = dfDEL.apply(lambda x: ",".join(list(np.unique(x[4].split(",") + x[9].split(",")))), axis=1)
+                dfDEL['supReadsCount'] = dfDEL['supportReads'].apply(lambda x:len(x.split(",")))
+                dfDEL[[0,'start','end','supReadsCount', 'supportReads', 3]].to_csv("%s/CandidateIntersect.DEL.tumor.merged.bed" % savedir, sep="\t", header=None, index=False)
+                os.system('cat %s/CandidateIntersect.DEL.tumor.merged.bed >> %s/CandidateSpan.tumor.merged.bed' % (savedir, savedir))
+                os.system('bedtools intersect -a %s/CandidateDEL.tumor.merged.bed -b %s/CandidateIntersect.DEL.tumor.merged.bed -wa -v >> %s/CandidateSpan.tumor.merged.bed' % (savedir, savedir, savedir))
+            else:
+                os.system('cat %s/CandidateDEL.tumor.merged.bed >> %s/CandidateSpan.tumor.merged.bed' % (savedir, savedir))
         else:
             dfDEL_large = Candidate_CLIP_Others_Result_BadSpan.loc[Candidate_CLIP_Others_Result_BadSpan['BPType']=='DEL', ['chrom', 'start', 'end', 'BPType', 'readID']]
-        # For intersect DEL get new SVborder, prepare for further reads gain loss test 
-        if Filerow("%s/CandidateLargeDEL.vs.CandidateDEL.intersect.bed" % savedir):
-            dfDEL = pd.read_csv("%s/CandidateLargeDEL.vs.CandidateDEL.intersect.bed" % savedir, sep="\t",header=None)
-            dfDEL['start'] = dfDEL.apply(lambda x:x[1] if x[1]<=x[6] else x[6], axis=1)
-            dfDEL['end'] = dfDEL.apply(lambda x:x[2] if x[1]>=x[7] else x[7], axis=1)
-            dfDEL['supportReads'] = dfDEL.apply(lambda x: ",".join(list(np.unique(x[4].split(",") + x[9].split(",")))), axis=1)
-            dfDEL['supReadsCount'] = dfDEL['supportReads'].apply(lambda x:len(x.split(",")))
-            dfDEL[[0,'start','end','supReadsCount', 'supportReads', 3]].to_csv("%s/CandidateIntersect.DEL.tumor.merged.bed" % savedir, sep="\t", header=None, index=False)
-            os.system('cat %s/CandidateIntersect.DEL.tumor.merged.bed >> %s/CandidateSpan.tumor.merged.bed' % (savedir, savedir))
-            os.system('bedtools intersect -a %s/CandidateDEL.tumor.merged.bed -b %s/CandidateIntersect.DEL.tumor.merged.bed -wa -v >> %s/CandidateSpan.tumor.merged.bed' % (savedir, savedir, savedir))
-        else:
             os.system('cat %s/CandidateDEL.tumor.merged.bed >> %s/CandidateSpan.tumor.merged.bed' % (savedir, savedir))
-    else:
-        dfDEL_large = Candidate_CLIP_Others_Result_BadSpan.loc[Candidate_CLIP_Others_Result_BadSpan['BPType']=='DEL', ['chrom', 'start', 'end', 'BPType', 'readID']]
-        os.system('cat %s/CandidateDEL.tumor.merged.bed >> %s/CandidateSpan.tumor.merged.bed' % (savedir, savedir))
-    if dfDEL_large.shape[0] > 0:
-        dfDEL_large.index = np.arange(dfDEL_large.shape[0])
-        Candidate_CLIP_Others_Result_DEL_IDX = Candidate_CLIP_Others_Result.loc[Candidate_CLIP_Others_Result['readID'].isin(list(dfDEL_large['readID']))].index
-        Candidate_CLIP_Others_Result_DEL = Candidate_CLIP_Others_filter.loc[Candidate_CLIP_Others_filter['labels'].isin(Candidate_CLIP_Others_Result_DEL_IDX)]
-        Candidate_CLIP_Others_Result_DEL['BPType'] = 'DEL'
-        Candidate_CLIP_Others_Result_DEL[['BPsite','readID','BPType','Site','DataLabel','labels']].to_csv("%s/CandidateLargeDEL.tumor.merged.decision.bed" % savedir, sep="\t", index=False)
-    # Treat DUP type SV next
-    ## For Large Scale DUP output into decision bed file 
-    if Candidate_CLIP_Others_Result_GoodSpan.loc[Candidate_CLIP_Others_Result_GoodSpan['BPType']=='DUP'].shape[0] > 0:
-        Candidate_CLIP_Others_Result_GoodSpan.loc[Candidate_CLIP_Others_Result_GoodSpan['BPType']=='DUP', ['chrom', 'start', 'end', 'BPType', 'readID']].to_csv('%s/CandidateDUP.tumor.merged.bed' % savedir, sep="\t", header=None, index=False)
-        os.system('sort -k1,1 -k2,2n %s/CandidateDUP.tumor.merged.bed -o %s/CandidateDUP.tumor.merged.bed' % (savedir, savedir))
-        os.system('bedtools intersect -a %s/CandidateDUP.tumor.merged.bed -b %s/CandidateINS.tumor.merged.bed -wa -v -f 0.5 -r > %s/CandidateDUP.tumor.merged.decision.bed' % (savedir, savedir, savedir))
-        os.system('bedtools intersect -a %s/CandidateDUP.tumor.merged.bed -b %s/CandidateINS.tumor.merged.bed -wa -wb -f 0.5 -r > %s/CandidateDUP.vs.CandidateINS.intersect.bed' % (savedir, savedir, savedir))
-        # check file row number 
-        if Filerow("%s/CandidateDUP.tumor.merged.decision.bed" % savedir):
-            dfDUP_large = pd.concat([pd.read_csv("%s/CandidateDUP.tumor.merged.decision.bed" % savedir, sep="\t",header=None, names=['chrom', 'start', 'end', 'BPType', 'readID']),
-                                    Candidate_CLIP_Others_Result_BadSpan.loc[Candidate_CLIP_Others_Result_BadSpan['BPType']=='DUP', ['chrom', 'start', 'end', 'BPType', 'readID']]], axis=0)
+        if dfDEL_large.shape[0] > 0:
+            dfDEL_large.index = np.arange(dfDEL_large.shape[0])
+            Candidate_CLIP_Others_Result_DEL_IDX = Candidate_CLIP_Others_Result.loc[Candidate_CLIP_Others_Result['readID'].isin(list(dfDEL_large['readID']))].index
+            Candidate_CLIP_Others_Result_DEL = Candidate_CLIP_Others_filter.loc[Candidate_CLIP_Others_filter['labels'].isin(Candidate_CLIP_Others_Result_DEL_IDX)]
+            Candidate_CLIP_Others_Result_DEL['BPType'] = 'DEL'
+            Candidate_CLIP_Others_Result_DEL[['BPsite','readID','BPType','Site','DataLabel','labels']].to_csv("%s/CandidateLargeDEL.tumor.merged.decision.bed" % savedir, sep="\t", index=False)
+        # Treat DUP type SV next
+        ## For Large Scale DUP output into decision bed file 
+        if Candidate_CLIP_Others_Result_GoodSpan.loc[Candidate_CLIP_Others_Result_GoodSpan['BPType']=='DUP'].shape[0] > 0:
+            Candidate_CLIP_Others_Result_GoodSpan.loc[Candidate_CLIP_Others_Result_GoodSpan['BPType']=='DUP', ['chrom', 'start', 'end', 'BPType', 'readID']].to_csv('%s/CandidateDUP.tumor.merged.bed' % savedir, sep="\t", header=None, index=False)
+            os.system('sort -k1,1 -k2,2n %s/CandidateDUP.tumor.merged.bed -o %s/CandidateDUP.tumor.merged.bed' % (savedir, savedir))
+            os.system('bedtools intersect -a %s/CandidateDUP.tumor.merged.bed -b %s/CandidateINS.tumor.merged.bed -wa -v -f 0.5 -r > %s/CandidateDUP.tumor.merged.decision.bed' % (savedir, savedir, savedir))
+            os.system('bedtools intersect -a %s/CandidateDUP.tumor.merged.bed -b %s/CandidateINS.tumor.merged.bed -wa -wb -f 0.5 -r > %s/CandidateDUP.vs.CandidateINS.intersect.bed' % (savedir, savedir, savedir))
+            # check file row number 
+            if Filerow("%s/CandidateDUP.tumor.merged.decision.bed" % savedir):
+                dfDUP_large = pd.concat([pd.read_csv("%s/CandidateDUP.tumor.merged.decision.bed" % savedir, sep="\t",header=None, names=['chrom', 'start', 'end', 'BPType', 'readID']),
+                                        Candidate_CLIP_Others_Result_BadSpan.loc[Candidate_CLIP_Others_Result_BadSpan['BPType']=='DUP', ['chrom', 'start', 'end', 'BPType', 'readID']]], axis=0)
+            else:
+                dfDUP_large = Candidate_CLIP_Others_Result_BadSpan.loc[Candidate_CLIP_Others_Result_BadSpan['BPType']=='DUP', ['chrom', 'start', 'end', 'BPType', 'readID']]
+            # For intersect DUP get new SVborder, prepare for further reads gain loss test 
+            if Filerow("%s/CandidateDUP.vs.CandidateINS.intersect.bed" % savedir):
+                dfDUP = pd.read_csv("%s/CandidateDUP.vs.CandidateINS.intersect.bed" % savedir, sep="\t",header=None)
+                dfDUP['start'] = dfDUP.apply(lambda x:x[1] if x[1]<=x[6] else x[6], axis=1)
+                dfDUP['end'] = dfDUP.apply(lambda x:x[2] if x[1]>=x[7] else x[7], axis=1)
+                dfDUP['supportReads'] = dfDUP.apply(lambda x: ",".join(list(np.unique(x[4].split(",") + x[9].split(",")))), axis=1)
+                dfDUP['supReadsCount'] = dfDUP['supportReads'].apply(lambda x:len(x.split(",")))
+                dfDUP[[0,'start','end','supReadsCount', 'supportReads', 3]].to_csv("%s/CandidateIntersect.DUP.tumor.merged.bed" % savedir, sep="\t", header=None, index=False)
+                os.system('cat %s/CandidateIntersect.DUP.tumor.merged.bed >> %s/CandidateSpan.tumor.merged.bed' % (savedir, savedir))
+                os.system('bedtools intersect -a %s/CandidateINS.tumor.merged.bed -b %s/CandidateIntersect.DUP.tumor.merged.bed -wa -v >> %s/CandidateSpan.tumor.merged.bed' % (savedir, savedir, savedir))
+            else:
+                os.system('cat %s/CandidateIntersect.DUP.tumor.merged.bed >> %s/CandidateSpan.tumor.merged.bed' % (savedir, savedir))
         else:
             dfDUP_large = Candidate_CLIP_Others_Result_BadSpan.loc[Candidate_CLIP_Others_Result_BadSpan['BPType']=='DUP', ['chrom', 'start', 'end', 'BPType', 'readID']]
-        # For intersect DUP get new SVborder, prepare for further reads gain loss test 
-        if Filerow("%s/CandidateDUP.vs.CandidateINS.intersect.bed" % savedir):
-            dfDUP = pd.read_csv("%s/CandidateDUP.vs.CandidateINS.intersect.bed" % savedir, sep="\t",header=None)
-            dfDUP['start'] = dfDUP.apply(lambda x:x[1] if x[1]<=x[6] else x[6], axis=1)
-            dfDUP['end'] = dfDUP.apply(lambda x:x[2] if x[1]>=x[7] else x[7], axis=1)
-            dfDUP['supportReads'] = dfDUP.apply(lambda x: ",".join(list(np.unique(x[4].split(",") + x[9].split(",")))), axis=1)
-            dfDUP['supReadsCount'] = dfDUP['supportReads'].apply(lambda x:len(x.split(",")))
-            dfDUP[[0,'start','end','supReadsCount', 'supportReads', 3]].to_csv("%s/CandidateIntersect.DUP.tumor.merged.bed" % savedir, sep="\t", header=None, index=False)
-            os.system('cat %s/CandidateIntersect.DUP.tumor.merged.bed >> %s/CandidateSpan.tumor.merged.bed' % (savedir, savedir))
-            os.system('bedtools intersect -a %s/CandidateINS.tumor.merged.bed -b %s/CandidateIntersect.DUP.tumor.merged.bed -wa -v >> %s/CandidateSpan.tumor.merged.bed' % (savedir, savedir, savedir))
-        else:
-            os.system('cat %s/CandidateIntersect.DUP.tumor.merged.bed >> %s/CandidateSpan.tumor.merged.bed' % (savedir, savedir))
+            os.system('cat %s/CandidateINS.tumor.merged.bed >> %s/CandidateSpan.tumor.merged.bed' % (savedir, savedir))
+        if dfDUP_large.shape[0] > 0:
+            dfDUP_large.index = np.arange(dfDUP_large.shape[0])
+            Candidate_CLIP_Others_Result_DUP_IDX = Candidate_CLIP_Others_Result.loc[Candidate_CLIP_Others_Result['readID'].isin(list(dfDUP_large['readID']))].index
+            Candidate_CLIP_Others_Result_DUP = Candidate_CLIP_Others_filter.loc[Candidate_CLIP_Others_filter['labels'].isin(Candidate_CLIP_Others_Result_DUP_IDX)]
+            Candidate_CLIP_Others_Result_DUP['BPType'] = 'DUP'
+            Candidate_CLIP_Others_Result_DUP[['BPsite','readID','BPType','Site','DataLabel','labels']].to_csv("%s/CandidateDUP.tumor.merged.decision.bed" % savedir, sep="\t", index=False)
     else:
-        dfDUP_large = Candidate_CLIP_Others_Result_BadSpan.loc[Candidate_CLIP_Others_Result_BadSpan['BPType']=='DUP', ['chrom', 'start', 'end', 'BPType', 'readID']]
-        os.system('cat %s/CandidateINS.tumor.merged.bed >> %s/CandidateSpan.tumor.merged.bed' % (savedir, savedir))
-    if dfDUP_large.shape[0] > 0:
-        dfDUP_large.index = np.arange(dfDUP_large.shape[0])
-        Candidate_CLIP_Others_Result_DUP_IDX = Candidate_CLIP_Others_Result.loc[Candidate_CLIP_Others_Result['readID'].isin(list(dfDUP_large['readID']))].index
-        Candidate_CLIP_Others_Result_DUP = Candidate_CLIP_Others_filter.loc[Candidate_CLIP_Others_filter['labels'].isin(Candidate_CLIP_Others_Result_DUP_IDX)]
-        Candidate_CLIP_Others_Result_DUP['BPType'] = 'DUP'
-        Candidate_CLIP_Others_Result_DUP[['BPsite','readID','BPType','Site','DataLabel','labels']].to_csv("%s/CandidateDUP.tumor.merged.decision.bed" % savedir, sep="\t", index=False)
+        # When Candidate_CLIP_Others have no data, INS DEL candidate should fill up the CandidateSpan.tumor.merged.bed file 
+        os.system(f'cat {savedir}/CandidateDEL.tumor.merged.bed {savedir}/CandidateINS.tumor.merged.bed >> {savedir}/CandidateSpan.tumor.merged.bed')
     # Filter candidate somatic SV regions 
     P = Pool(cpu)
     results = []
@@ -677,12 +681,16 @@ def FindCandidateSVWindow(bedFileTumor, bedFileNormal, faiFile,
     ## Single BreakPoint SVs 
     # Get Candidate Window INV 
     resDf_CLIP_INV = pd.concat([resDf_CLIP_INV_tumor, resDf_CLIP_INV_normal], axis=0)
-    CandidateINV = DecisionWithDBSCAN(resDf_CLIP_INV)
-    CandidateINV[['BPsite','readID','BPType','Site','DataLabel','labels']].to_csv("%s/CandidateINV.tumor.merged.decision.bed" % savedir, sep="\t", index=False)
+    if resDf_CLIP_INV.shape[0] > 0:
+        CandidateINV = DecisionWithDBSCAN(resDf_CLIP_INV)
+        if CandidateINV.shape[0] > 0:
+            CandidateINV[['BPsite','readID','BPType','Site','DataLabel','labels']].to_csv("%s/CandidateINV.tumor.merged.decision.bed" % savedir, sep="\t", index=False)
     # Get Candidate Window TRA 
     resDf_CLIP_TRA = pd.concat([resDf_CLIP_TRA_tumor, resDf_CLIP_TRA_normal], axis=0)
-    CandidateTRA = DecisionWithDBSCAN(resDf_CLIP_TRA)
-    CandidateTRA[['BPsite','readID','BPType','Site','DataLabel','labels']].to_csv("%s/CandidateTRA.tumor.merged.decision.bed" % savedir, sep="\t", index=False)
+    if resDf_CLIP_TRA.shape[0] > 0:
+        CandidateTRA = DecisionWithDBSCAN(resDf_CLIP_TRA)
+        if CandidateTRA.shape[0] > 0:
+            CandidateTRA[['BPsite','readID','BPType','Site','DataLabel','labels']].to_csv("%s/CandidateTRA.tumor.merged.decision.bed" % savedir, sep="\t", index=False)
     return(["%s/CandidateSpan.tumor.merged.decision.somatic.bed" % savedir,"%s/CandidateLargeDEL.tumor.merged.decision.bed" % savedir, "%s/CandidateDUP.tumor.merged.decision.bed" % savedir,  "%s/CandidateINV.tumor.merged.decision.bed" % savedir, "%s/CandidateTRA.tumor.merged.decision.bed" % savedir])
 
 def generate_vcfheaderINVTRA(faiFile,out_vcf,fasta):
