@@ -129,3 +129,59 @@ python src/CheckInner-alignmentSVs.adjustVCF.py \
 ```shell
 - <CaseID>.mergedSomatic.adjusted.vcf                  # result of all somatic SV calling with randomforest selection, INS located within tandem repeat and low complexity regions are represented as regions annotated by Repeat Masker.
 ```
+
+## Demo Data and Quick Start
+
+We provide demo datasets, test scripts, and accompanying reference data hosted on **[Zenodo](https://zenodo.org/records/18681801)** to help you quickly validate your SVScope installation.
+
+### Download and Setup
+
+Download the complete demo package (includes reference genomes and source code):
+
+```shell
+wget -c -O Demo_reference_SourceCode.tar.gz "https://zenodo.org/records/18681801/files/Demo_reference_SourceCode.tar.gz?download=1"
+```
+Extract the archive:
+```shell
+tar -zxvf Demo_reference_SourceCode.tar.gz
+```
+### Running the ONT Demo
+Navigate to the Oxford Nanopore Technologies (ONT) demonstration directory:
+```shell
+cd Demo_reference_SourceCode/DemoDat/demo_ONT
+```
+Execute the pre-configured demonstration script:
+```shell
+sh Run_demoONT.sh
+```
+Execution Time: Approximately 30 minutes on a standard workstation (4 CPU cores).
+#### Expected Output:
+Upon successful completion, somatic structural variant calls will be generated at:
+```shell
+test/case.mergedSomatic.vcf
+```
+This VCF file contains high-confidence somatic SVs identified between the case (tumor) and control (normal) demo samples.
+
+#### Alternative Configuration: MSA Algorithm Selection
+During extensive cross-platform validation, we observed that the default abPOA (Adaptive Band POA) algorithm may hang or become unresponsive on systems experiencing high resource contention or specific kernel configurations. This typically manifests as the process freezing during the multiple sequence alignment (MSA) phase without error messages.
+
+If you encounter hanging behavior or excessive runtime (>2 hours), manually specify SIMD-sPOA as the MSA backend. This implementation offers enhanced stability across diverse computing environments.
+##### Command with sPOA backend:
+```bash
+python ../../SVScope/src/SVScope.py DataPrepare \
+    -T demo_case.ont.bam \
+    -N demo_control.ont.bam \
+    -t case \
+    -n control \
+    -r ../../reference/hg38_mainChr.fa \
+    -s ./test/ \
+    -p 4 \
+    --selectwindows \
+    --FullProcess \
+    --cleanupDat \
+    --platform ONT \
+    --MSA spoa
+```
+Key Parameter: --MSA spoa explicitly invokes the SIMD-optimized sPOA algorithm instead of the default abPOA.
+
+
