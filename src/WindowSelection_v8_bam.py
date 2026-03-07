@@ -511,8 +511,8 @@ def Filerow(filePath):
 
 def FindCandidateSVWindow(bedFileTumor, bedFileNormal, faiFile,
                           LowComplex, savedir="./", cpu=60):
-    resDf_DEL_tumor, resDf_INS_tumor, resDf_CLIP_Others_tumor, resDf_CLIP_INV_tumor, resDf_CLIP_TRA_tumor, CLIP_Raw_tumor = ParseWindows(bedFileTumor, faiFile=faiFile, DataLabel='Tumor')
-    resDf_DEL_normal, resDf_INS_normal, resDf_CLIP_Others_normal, resDf_CLIP_INV_normal, resDf_CLIP_TRA_normal, CLIP_Raw_normal = ParseWindows(bedFileNormal, faiFile=faiFile, DataLabel='Normal', mapQ=0)
+    resDf_DEL_tumor, resDf_INS_tumor, resDf_CLIP_Others_tumor, resDf_CLIP_INV_tumor, resDf_CLIP_TRA_tumor, CLIP_Raw_tumor = ParseWindows(bedFileTumor, faiFile=faiFile, DataLabel='Tumor', cpu=cpu)
+    resDf_DEL_normal, resDf_INS_normal, resDf_CLIP_Others_normal, resDf_CLIP_INV_normal, resDf_CLIP_TRA_normal, CLIP_Raw_normal = ParseWindows(bedFileNormal, faiFile=faiFile, DataLabel='Normal', mapQ=0,cpu=cpu)
     chromDict = faiToChromDict(faiFile)
     ## Double BreakPoint SVs 
     resDf_DEL_tumor.to_csv("%s/tmpDEL.bed" % savedir, sep="\t", header=None, index=False)

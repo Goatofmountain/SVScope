@@ -132,14 +132,14 @@ python src/CheckInner-alignmentSVs.adjustVCF.py \
 
 ## Demo Data and Quick Start
 
-We provide demo datasets, test scripts, and accompanying reference data hosted on **[Zenodo](https://zenodo.org/records/18681801)** to help you quickly validate your SVScope installation.
+We provide demo datasets, test scripts, and accompanying reference data hosted on **[Zenodo](https://doi.org/10.5281/zenodo.18681800)** to help you quickly validate your SVScope installation.
 
 ### Download and Setup
 
 Download the complete demo package (includes reference genomes and source code):
 
 ```shell
-wget -c -O Demo_reference_SourceCode.tar.gz "https://zenodo.org/records/18681801/files/Demo_reference_SourceCode.tar.gz?download=1"
+wget -c -O Demo_reference_SourceCode.tar.gz "https://zenodo.org/records/18899809/files/Demo_reference_SourceCode.tar.gz?download=1"
 ```
 Extract the archive:
 ```shell

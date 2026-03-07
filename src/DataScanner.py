@@ -1,7 +1,12 @@
 '''
 __Author__: Kailing Tu
-__Version__: v20.0.0
-__ReleaseTime__: 2025-11-06
+__Version__: v21.0.0
+__ReleaseTime__: 2026-03-07
+
+ReleaseNote:
+    remove biopython usage to avoid potential bugs
+    run mafft algorithm with subprocess package with pipe 
+    update msa_from_list_stdin function
 
 ReleaseNote:
     extend abPOA, other MSA methods with biopython version 1.83 
@@ -54,10 +59,10 @@ import sqlite3
 from concurrent.futures import ProcessPoolExecutor
 import logging
 import functools
-from Bio.Seq import Seq
-from Bio.SeqRecord import SeqRecord
-from Bio.Align.Applications import MuscleCommandline, ClustalOmegaCommandline, MafftCommandline
-from Bio import AlignIO, SeqIO
+# from Bio.Seq import Seq
+# from Bio.SeqRecord import SeqRecord
+# from Bio.Align.Applications import MuscleCommandline, ClustalOmegaCommandline, MafftCommandline
+# from Bio import AlignIO, SeqIO
 import tempfile, subprocess, io, os
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -195,27 +200,68 @@ def FindNonSameSite(seqencode_New_Sub, cutoff=3):
     return(NonSameSiteIDX)
 
 # Build in Other MSA methods, by default mafft 
-def msa_from_list_stdin(seq_records, engine="mafft"):
-    """Run expensive MSA process"""
-    # move fasta file into memory 
-    fasta_str = io.StringIO()
-    SeqIO.write(seq_records, fasta_str, "fasta")
-    if engine == "muscle":
-        cmd = ["muscle", "-quiet"]
-    elif engine == "clustalo":
-        cmd = ["clustalo", "--infile=-", "--outfile=-", "--force"]
-    elif engine == "mafft":
-        cmd = ["mafft", "--quiet", "--thread", "1", "-"]
-    else:
-        raise ValueError("stdin mode only support muscle/clustalo")
-    proc = subprocess.run(cmd,
-                          input=fasta_str.getvalue(),
-                          text=True,
-                          capture_output=True,
-                          check=True)
-    aln = AlignIO.read(io.StringIO(proc.stdout), "fasta")
-    seqList = [str(rec.seq).upper() for rec in aln]
-    return seqList
+# def msa_from_list_stdin(seq_records, engine="mafft"):
+#     """Run expensive MSA process"""
+#     # move fasta file into memory 
+#     fasta_str = io.StringIO()
+#     SeqIO.write(seq_records, fasta_str, "fasta")
+#     if engine == "muscle":
+#         cmd = ["muscle", "-quiet"]
+#     elif engine == "clustalo":
+#         cmd = ["clustalo", "--infile=-", "--outfile=-", "--force"]
+#     elif engine == "mafft":
+#         cmd = ["mafft", "--quiet", "--thread", "1", "-"]
+#     else:
+#         raise ValueError("stdin mode only support muscle/clustalo")
+#     proc = subprocess.run(cmd,
+#                           input=fasta_str.getvalue(),
+#                           text=True,
+#                           capture_output=True,
+#                           check=True)
+#     aln = AlignIO.read(io.StringIO(proc.stdout), "fasta")
+#     seqList = [str(rec.seq).upper() for rec in aln]
+#     return seqList
+
+def msa_from_list_stdin(seq_list, engine="mafft"):
+    """
+    Run MSA using command line tool via stdin/stdout without Biopython.
+    Input: seq_list - list of sequences (strings), reference at position 0
+    Output: list of aligned sequences (strings) in the same order as input
+    """
+    if engine != "mafft":
+        raise ValueError("Only mafft is supported. Please use engine='mafft'")
+    # 手动构建FASTA格式字符串（内存中，不写硬盘）
+    fasta_content = []
+    for idx, seq in enumerate(seq_list):
+        fasta_content.append(f">{idx}\n{seq}")
+    fasta_str = "\n".join(fasta_content) + "\n"
+    # 通过管道调用mafft
+    cmd = ["mafft", "--quiet", "--thread", "1", "-"]
+    proc = subprocess.run(
+        cmd,
+        input=fasta_str,
+        text=True,
+        capture_output=True,
+        check=True
+    )
+    # 解析FASTA格式的stdout（不依赖Biopython）
+    aligned_seqs = []
+    current_seq_lines = []
+    for line in proc.stdout.strip().split('\n'):
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith('>'):
+            # 保存前一个序列
+            if current_seq_lines:
+                aligned_seqs.append("".join(current_seq_lines).upper())
+                current_seq_lines = []
+        else:
+            current_seq_lines.append(line)
+    # 添加最后一个序列
+    if current_seq_lines:
+        aligned_seqs.append("".join(current_seq_lines).upper())
+    return aligned_seqs
 
 def MSAFeatureSelection(sequenceList, flank_5, flank_3, readIDList, hcutoff=3, scutoff=0.05, MSA='spoa'):
     '''
@@ -268,7 +314,7 @@ def MSAFeatureSelection(sequenceList, flank_5, flank_3, readIDList, hcutoff=3, s
             aln_res = a.msa(sequences, out_cons=False, out_msa=True) # perform multiple sequence alignment with abPOA 
             msa = aln_res.msa_seq
             seqencode_New = np.array(list(map(SeqEncoder, msa)))
-    else:
+    else:                                                         # Use mafft as the MSA pipeline
         if DELIDX.shape[0] > 0:      # Fully DEL reads exist impute alignment matrix as fully gap 
             UnDELSeq = [sequences[0]] + [sequences[1:][I] for I in UnDELIDX]
             seq_records = [SeqRecord(Seq(sequence), id=str(i)) for i,sequence in enumerate(UnDELSeq)]
