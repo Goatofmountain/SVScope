@@ -114,7 +114,7 @@ python src/SVScope.py \
     --platform <LRS platform>                          # Platform choose, now we support "ont" and "PacBio", by default "PacBio".
 
 ```
-### Option2: Interval Correction for Low Complexity and Tandem Repeat Regions
+### Option3: Interval Correction for Low Complexity and Tandem Repeat Regions
 - Rationale: 
 During our analysis, we observed that for somatic Insertions (INS) occurring within Low Complexity (LC) or Tandem Repeat (TR) regions, a single breakpoint coordinate (or even a median position) often fails to fully represent the genomic alteration due to alignment ambiguities and local sequence repetition.
 We propose that the entire LC or TR genomic interval serves as a more robust and biologically meaningful representation for these specific somatic events.
