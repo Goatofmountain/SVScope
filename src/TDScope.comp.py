@@ -19,7 +19,6 @@ from sklearn.model_selection import StratifiedShuffleSplit, GridSearchCV, Strati
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import roc_curve, auc
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Support Functions
 

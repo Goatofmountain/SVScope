@@ -22,7 +22,6 @@ from multiprocessing import Pool
 import time
 import logging
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 def TDscope(TDRecord, DataMaker, DataMaker2, DecisionMaker):
     '''
     Complete pipeline of TDscope 

@@ -44,7 +44,6 @@ from sklearn.manifold import MDS
 from sklearn.mixture import GaussianMixture
 import logging
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 def TestSom(Control, Case):
     # Input Control 2d array and Case 2d array 
     # H0: Control and Case share same multinormal distribution parameter 

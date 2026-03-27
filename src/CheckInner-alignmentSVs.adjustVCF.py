@@ -12,7 +12,6 @@ import time
 import logging
 import argparse
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def CheckFileLen(AimFile):
     with open(AimFile) as input:

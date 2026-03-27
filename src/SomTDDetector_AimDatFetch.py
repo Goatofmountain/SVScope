@@ -24,7 +24,6 @@ from multiprocessing import Pool
 import time
 import logging
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def FetchTDsubSeq(refFile, bamFileList, LabelList, TDRecord, offset=200):
     # Input refFile, bamFile, bamLabel, TDRecord 

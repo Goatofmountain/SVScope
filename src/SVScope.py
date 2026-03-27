@@ -5,6 +5,7 @@ os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
 os.environ["NUMBA_NUM_THREADS"] = "1"
 import pandas as pd 
+pd.options.mode.chained_assignment = None
 import numpy as np 
 import pysam 
 import argparse
@@ -29,7 +30,7 @@ import WindowSelection_v8_bam
 import SomTDDetector_AimDatFetch
 import sys
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Support Functions
 def check_arguments(args):
@@ -379,6 +380,8 @@ def main():
             -callsomaticSV: Call somatic SV and output in vcf format
         '''
     )
+    parser.add_argument("--verbose", action="store_true", default=False, 
+                        help="If specified, output detailed log information. Default: False")
     parser.add_argument('-W', '--genomeWindow', type=str, default=os.path.join(doc_dir, 'hg38_mainChr.10kb.window.bed'), 
                         help="gernomic window file, by default 10kb window bed could fetch by using bedtools makewindows command")
     parser.add_argument("-D", "--tandemRepeatFile", type=str, default=os.path.join(doc_dir, 'hg38.RepeatMasker.TD.Low.mainChr.sort.bed'), 
@@ -483,6 +486,10 @@ def main():
     parser_callsomaticSV.add_argument("-c", '--cleanupDat', action='store_true', default=False, help="If set, clean up bed.gz and sqlite files for space, by default False")
     parser_callsomaticSV.set_defaults(func=callsomaticSV)
     args = parser.parse_args()
+    if args.verbose:
+        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s', force=True)
+    else:
+        logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(levelname)s - %(message)s', force=True)
     if hasattr(args, 'func'):
         args.func(args)
     else:

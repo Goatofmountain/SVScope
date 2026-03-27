@@ -65,7 +65,6 @@ import functools
 # from Bio import AlignIO, SeqIO
 import tempfile, subprocess, io, os
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Local data scanner 
 def reverse_complement(sequence):
